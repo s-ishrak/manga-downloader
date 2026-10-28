@@ -36,6 +36,9 @@ namespace MangaDownloader.Core
         public bool? KeepImages { get; set; }
         public bool? Overwrite { get; set; }
 
+        /// <summary>Multi-chapter series: one archive for the whole series instead of one per chapter.</summary>
+        public bool? CombineChapters { get; set; }
+
         /// <summary>Galleries downloaded at the same time.</summary>
         public int? Concurrent { get; set; }
 

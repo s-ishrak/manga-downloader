@@ -43,6 +43,12 @@ namespace MangaDownloader.Core.Download
         /// </summary>
         public bool KeepImages { get; set; }
 
+        /// <summary>
+        /// For a series with several chapters saved as cbz/zip/pdf: one archive for the whole series (chapters in order, each in its own
+        /// sub-folder inside it) instead of one archive per chapter. Ignored for single chapters and the folder format.
+        /// </summary>
+        public bool CombineChapters { get; set; }
+
         /// <summary>Per-image format conversions applied after download (first matching rule wins), e.g. webp,avif=jpg:80.</summary>
         public List<ImageConversionRule> ConversionRules { get; private set; } = new List<ImageConversionRule>();
         public bool SkipExisting { get; set; } = true;
@@ -213,6 +219,20 @@ namespace MangaDownloader.Core.Download
             var folderName = SafeName(NameFormatter.Format(options.FolderFormat, infoValues));
             var seriesDir = Path.Combine(options.OutputDirectory, folderName);
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var combine = options.CombineChapters && !single && ArchivePath(seriesDir) != null;
+            var combinedPath = combine ? ArchivePath(seriesDir) : null;
+            var chapterDirs = new List<string>();
+
+            if (combine && options.SkipExisting && File.Exists(combinedPath))
+            {
+                log("exists, skipping: " + combinedPath);
+                report.Outputs.Add(combinedPath);
+                report.ChaptersDone = report.ChaptersTotal;
+                RaiseProgress(report, 0, 0);
+                return;
+            }
+
+            var errorsBefore = report.Errors.Count;
 
             for (var c = 0; c < chapters.Count; c++)
             {
@@ -245,16 +265,45 @@ namespace MangaDownloader.Core.Download
                     archiveBase = workDir;
                 }
 
-                DownloadChapter(chapter.Url ?? url, session, infoValues, info, workDir, archiveBase, report, cancel);
+                DownloadChapter(chapter.Url ?? url, session, infoValues, info, workDir, combine ? null : archiveBase, report, cancel);
+                chapterDirs.Add(workDir);
                 report.ChaptersDone++;
                 RaiseProgress(report, 0, 0);
             }
+
+            // Only pack once every chapter is complete; otherwise keep the folders and let a rerun resume.
+            if (!combine || report.Errors.Count > errorsBefore)
+                return;
+
+            var entries = new List<KeyValuePair<string, string>>();
+
+            foreach (var dir in chapterDirs)
+                foreach (var file in ArchiveFiles.List(dir))
+                    entries.Add(new KeyValuePair<string, string>(file, Path.GetFileName(dir) + "/" + Path.GetFileName(file)));
+
+            if (options.SaveFormat == SaveFormat.Pdf)
+                PdfWriter.Create(entries.Select(e => e.Key).ToList(), combinedPath, info.Fields);
+            else
+                CbzWriter.Create(entries, combinedPath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null);
+
+            log("wrote " + combinedPath);
+            report.Outputs.Add(combinedPath);
+
+            if (!options.KeepImages)
+            {
+                foreach (var dir in chapterDirs)
+                    Directory.Delete(dir, recursive: true);
+
+                if (!Directory.EnumerateFileSystemEntries(seriesDir).Any())
+                    Directory.Delete(seriesDir);
+            }
         }
 
+        /// <param name="archiveBase">Where the chapter's own archive goes (extension added); null means no archive is written here.</param>
         private void DownloadChapter(string chapterUrl, ModuleSession session, Dictionary<string, string> infoValues, InfoResult info,
             string workDir, string archiveBase, DownloadReport report, CancellationToken cancel)
         {
-            var archivePath = ArchivePath(archiveBase);
+            var archivePath = archiveBase == null ? null : ArchivePath(archiveBase);
 
             if (archivePath != null && options.SkipExisting && File.Exists(archivePath))
             {
@@ -345,7 +394,9 @@ namespace MangaDownloader.Core.Download
 
             if (archivePath == null)
             {
-                report.Outputs.Add(workDir);
+                if (archiveBase != null) // folder format; when combining, the series archive is the output
+                    report.Outputs.Add(workDir);
+
                 return;
             }
 

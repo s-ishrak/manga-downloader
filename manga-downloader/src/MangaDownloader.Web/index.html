@@ -114,6 +114,7 @@
     <button data-tab="queue" class="on">Queue<span class="count" id="nQueue"></span></button>
     <button data-tab="history">History<span class="count" id="nHistory"></span></button>
     <button data-tab="tracked">Tracked series<span class="count" id="nTracked"></span></button>
+    <button data-tab="sites">Supported sites</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
@@ -133,6 +134,10 @@
   <section class="card" id="panel-tracked" hidden><div class="list" id="tracked"></div>
     <div class="tools"><button class="small" id="checkAll">Check all now</button></div>
   </section>
+  <section class="card" id="panel-sites" hidden>
+    <div class="tools"><input type="text" id="siteFilter" size="30" placeholder="Filter sites" aria-label="Filter supported sites"><span class="sub" id="siteCount"></span></div>
+    <div class="list" id="sites"></div>
+  </section>
   <section class="card" id="panel-settings" hidden>
     <form id="settings" class="form" novalidate>
       <label for="sOut">Save to</label>
@@ -147,6 +152,8 @@
       <input type="number" id="sRetry" name="retry" min="0" step="1">
       <label for="sDelay">Delay between pages</label>
       <span><input type="number" id="sDelay" name="delayMilliseconds" min="0" step="100"> <span class="sub">ms</span></span>
+      <span></span>
+      <label class="check"><input type="checkbox" id="sCombine" name="combineChapters"> Multiple chapters: pack into a single file (otherwise one file per chapter)</label>
       <span></span>
       <label class="check"><input type="checkbox" id="sKeep" name="keepImages"> Keep the image folder after packing</label>
       <span></span>
@@ -307,6 +314,7 @@ function renderSettings() {
   for (const n of NUMBER_SETTINGS) f[n].value = s[n];
   f.parallel.max = s.limits.parallel; f.retry.max = s.limits.retry; f.delayMilliseconds.max = s.limits.delayMilliseconds;
   f.keepImages.checked = s.keepImages; f.overwrite.checked = s.overwrite;
+  f.combineChapters.checked = s.combineChapters;
 }
 
 // Sends only what differs from the current settings, so values given on the command line are not saved by accident.
@@ -321,6 +329,7 @@ async function saveSettings() {
   }
   if (f.keepImages.checked !== s.keepImages) body.keepImages = f.keepImages.checked;
   if (f.overwrite.checked !== s.overwrite) body.overwrite = f.overwrite.checked;
+  if (f.combineChapters.checked !== s.combineChapters) body.combineChapters = f.combineChapters.checked;
   if (!Object.keys(body).length) { settingsDirty = false; return toast('Nothing changed.'); }
   try { await api('/api/settings', body); settingsDirty = false; toast('Settings saved'); refresh(); }
   catch (e) { toast(e.message); }
@@ -329,8 +338,30 @@ async function saveSettings() {
 function showTab(name) {
   tab = name;
   for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x.dataset.tab === name);
-  for (const t of ['queue', 'history', 'tracked', 'settings']) $('panel-' + t).hidden = t !== name;
+  for (const t of ['queue', 'history', 'tracked', 'sites', 'settings']) $('panel-' + t).hidden = t !== name;
+  if (name === 'sites' && !sites) loadSites();
 }
+
+// The module list never changes while running, so it is fetched once, when the tab is first opened.
+let sites = null;
+async function loadSites() {
+  try { sites = await api('/api/sites'); renderSites(); }
+  catch (e) { toast(e.message); }
+}
+
+function renderSites() {
+  const q = $('siteFilter').value.trim().toLowerCase();
+  const shown = sites.filter(s => !q || s.domain.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q));
+  $('siteCount').textContent = shown.length + (q ? ' of ' + sites.length : '') + ' sites';
+  fill('sites', shown, s => {
+    const linkable = /^[a-z0-9.-]+$/i.test(s.domain);
+    return el('div', { class: 'item' },
+      el('div', {}, linkable ? el('a', { class: 'title', href: 'https://' + s.domain, target: '_blank', rel: 'noopener noreferrer', text: s.domain }) : el('div', { class: 'title', text: s.domain }),
+        s.name && s.name !== s.domain ? el('div', { class: 'sub', text: s.name }) : null),
+      s.adult ? el('span', { class: 'status Stopped', text: 'adult' }) : null);
+  }, 'No sites loaded.');
+}
+$('siteFilter').addEventListener('input', () => { if (sites) renderSites(); });
 
 // While the server cannot be reached, say so and disable every control (tabs stay usable); polling carries on and undoes it.
 let offline = null;

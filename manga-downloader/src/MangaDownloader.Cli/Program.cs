@@ -25,7 +25,7 @@ namespace MangaDownloader.Cli
             "Usage:\n" +
             "  manga-downloader get      <url>... [--output DIR] [--format cbz|zip|pdf|folder] [--parallel N] [--retry N]\n" +
             "                            [--delay MS] [--page-format F] [--chapter-format F] [--folder-format F]\n" +
-            "                            [--convert webp,avif=jpg:80]... [--keep-images] [--overwrite]\n" +
+            "                            [--convert webp,avif=jpg:80]... [--keep-images] [--single-file] [--overwrite]\n" +
             "  manga-downloader info|chapters|pages <url>\n" +
             "  manga-downloader queue add <url>... | list | run [--concurrent N] | remove <id> | clear | import <queue.manga> [--map url=6,title=0,progress=11,status=12]\n" +
             "  manga-downloader history [--limit N] | history clear\n" +
@@ -437,7 +437,7 @@ namespace MangaDownloader.Cli
 
                 // Each download gets its own copy of the options, so a setting changed in the web UI applies from the next download on.
                 using (var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download.Clone(), null, credentials), Console.WriteLine) { MaxConcurrent = options.Int("concurrent", options.Settings.Concurrent ?? 1) })
-                using (var server = new LocalWebServer(library, runner, tracker, port, download: download, settingsFile: options.SettingsFile) { CheckEveryMinutes = options.Int("check-every", options.Settings.CheckEveryMinutes ?? 0) })
+                using (var server = new LocalWebServer(library, runner, tracker, port, download: download, settingsFile: options.SettingsFile, modules: repository) { CheckEveryMinutes = options.Int("check-every", options.Settings.CheckEveryMinutes ?? 0) })
                 {
                     // Cloudflare questions are answered in the web page instead of the console.
                     net.Verification.Target = server;
@@ -531,6 +531,7 @@ namespace MangaDownloader.Cli
                 RetryFailed = options.Int("retry", settings.Retry ?? 4),
                 PageDelayMilliseconds = options.Int("delay", settings.DelayMilliseconds ?? 0),
                 KeepImages = options.Has("keep-images") || settings.KeepImages == true,
+                CombineChapters = options.Has("single-file") || settings.CombineChapters == true,
                 SkipExisting = !(options.Has("overwrite") || settings.Overwrite == true),
                 SaveFormat = AppSettings.ParseFormat(options.Flag("format") ?? settings.Format ?? "cbz"),
             };
@@ -587,7 +588,7 @@ namespace MangaDownloader.Cli
         private sealed class Options
         {
             private static readonly HashSet<string> Switches =
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "keep-images", "overwrite", "random-ua", "open", "auto", "browser", "paste" };
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "keep-images", "single-file", "overwrite", "random-ua", "open", "auto", "browser", "paste" };
 
             private readonly Dictionary<string, string> flags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, List<string>> repeated = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);

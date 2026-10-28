@@ -44,13 +44,19 @@ namespace MangaDownloader.Web
         private PendingVerification pending;
         private Task acceptLoop;
         private readonly string settingsFile;
+        private readonly object[] sites;
         private readonly object settingsGate = new object();
         private int checkEveryMinutes;
 
         /// <param name="settingsFile">Where changes made in the page are saved (only the fields changed there); null keeps them for this run only.</param>
-        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null, string settingsFile = null)
+        /// <param name="modules">The loaded scrapers; when given, the page lists the sites they support.</param>
+        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null, string settingsFile = null, ModuleRepository modules = null)
         {
             this.download = download;
+            sites = modules == null ? new object[0] : modules.Modules
+                .SelectMany(m => m.Module.Domains.All.Select(d => new { domain = d, name = m.Module.GetName(d), adult = m.Module.Adult }))
+                .GroupBy(s => s.domain, StringComparer.OrdinalIgnoreCase).Select(g => g.First())
+                .OrderBy(s => s.domain, StringComparer.OrdinalIgnoreCase).ToArray<object>();
             this.settingsFile = settingsFile;
             this.library = library;
             this.runner = runner;
@@ -182,6 +188,12 @@ namespace MangaDownloader.Web
                     return;
                 }
 
+                if (req.HttpMethod == "GET" && path == "/api/sites")
+                {
+                    Send(ctx, 200, sites);
+                    return;
+                }
+
                 if (req.HttpMethod == "POST")
                 {
                     if (!SameOriginJson(req))
@@ -264,6 +276,7 @@ namespace MangaDownloader.Web
                 retry = download.RetryFailed,
                 delayMilliseconds = download.PageDelayMilliseconds,
                 keepImages = download.KeepImages,
+                combineChapters = download.CombineChapters,
                 overwrite = !download.SkipExisting,
                 checkEveryMinutes = CheckEveryMinutes,
                 saved = settingsFile != null,
@@ -411,7 +424,9 @@ namespace MangaDownloader.Web
                 var checkEvery = Int("checkEveryMinutes", 0, 7 * 24 * 60);
                 var keepImages = Flag("keepImages");
                 var overwrite = Flag("overwrite");
+                var combine = Flag("combineChapters");
 
+                if (combine != null) download.CombineChapters = combine.Value;
                 if (folder != null) download.OutputDirectory = folder;
                 if (format != null) download.SaveFormat = format.Value;
                 if (parallel != null) download.MaxParallel = parallel.Value;
@@ -431,6 +446,7 @@ namespace MangaDownloader.Web
                     s.DelayMilliseconds = delay ?? s.DelayMilliseconds;
                     s.KeepImages = keepImages ?? s.KeepImages;
                     s.Overwrite = overwrite ?? s.Overwrite;
+                    s.CombineChapters = combine ?? s.CombineChapters;
                     s.Concurrent = concurrency ?? s.Concurrent;
                     s.CheckEveryMinutes = checkEvery ?? s.CheckEveryMinutes;
                 });
