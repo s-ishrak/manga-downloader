@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using MangaDownloader.Core.Download;
 using MangaDownloader.Core.Library;
 
 namespace MangaDownloader.Web
@@ -34,6 +35,7 @@ namespace MangaDownloader.Web
         private readonly LibraryDb library;
         private readonly QueueRunner runner;
         private readonly SeriesTracker tracker;
+        private readonly DownloadOptions download;
         private readonly HttpListener listener = new HttpListener();
         private readonly ConcurrentDictionary<long, bool> checking = new ConcurrentDictionary<long, bool>();
         private CancellationTokenSource stop;
@@ -41,8 +43,9 @@ namespace MangaDownloader.Web
         private PendingVerification pending;
         private Task acceptLoop;
 
-        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null)
+        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null)
         {
+            this.download = download;
             this.library = library;
             this.runner = runner;
             this.tracker = tracker;
@@ -239,7 +242,8 @@ namespace MangaDownloader.Web
 
         private object State() => new
         {
-            runner = new { running = runner.IsRunning, paused = runner.IsPaused, currentId = runner.CurrentId },
+            runner = new { running = runner.IsRunning, paused = runner.IsPaused, active = runner.ActiveCount, concurrency = runner.MaxConcurrent, maxConcurrency = QueueRunner.ConcurrencyLimit },
+            outputDirectory = download == null ? null : Path.GetFullPath(download.OutputDirectory),
             verification = Pending(),
             verificationSteps = MangaDownloader.Net.VerificationText.Steps,
             queue = library.ListQueue(),
@@ -300,7 +304,7 @@ namespace MangaDownloader.Web
                         runner.Wake();
                         return new { ok = true };
                     case "remove":
-                        if (runner.CurrentId == qid)
+                        if (runner.IsActive(qid))
                             throw new ApiException(409, "Stop the download before removing it.");
                         return new { ok = library.RemoveFromQueue(qid) };
                 }
@@ -310,9 +314,40 @@ namespace MangaDownloader.Web
             {
                 if (parts[2] == "pause") runner.Pause();
                 else if (parts[2] == "resume") runner.Resume();
+                else if (parts[2] == "concurrency")
+                {
+                    if (!args.TryGetProperty("count", out var count) || count.ValueKind != JsonValueKind.Number || !count.TryGetInt32(out var n) || n < 1 || n > QueueRunner.ConcurrencyLimit)
+                        throw new ApiException(400, $"count must be a whole number from 1 to {QueueRunner.ConcurrencyLimit}.");
+
+                    runner.MaxConcurrent = n;
+                }
                 else throw new ApiException(404, "unknown runner action");
 
-                return new { paused = runner.IsPaused };
+                return new { paused = runner.IsPaused, concurrency = runner.MaxConcurrent };
+            }
+
+            if (parts.Length == 3 && parts[1] == "settings" && parts[2] == "output")
+            {
+                if (download == null)
+                    throw new ApiException(404, "The output folder cannot be changed here.");
+
+                var folder = (Str("path") ?? "").Trim();
+
+                if (folder.Length == 0)
+                    throw new ApiException(400, "Enter a folder.");
+
+                try
+                {
+                    folder = Path.GetFullPath(folder);
+                    Directory.CreateDirectory(folder);
+                }
+                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException || e is NotSupportedException)
+                {
+                    throw new ApiException(422, "Cannot use that folder: " + e.Message);
+                }
+
+                download.OutputDirectory = folder; // downloads that start from now on use it
+                return new { outputDirectory = folder };
             }
 
             if (parts.Length >= 2 && parts[1] == "verify")

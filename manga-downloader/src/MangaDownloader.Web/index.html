@@ -32,6 +32,7 @@
   .verify h2 { margin: 0; font-size: 16px; } .verify ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
   [hidden] { display: none !important; }
   textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg); color: var(--text); font: inherit; }
+  select { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; }
   input[type=text] { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); color: var(--text); font: inherit; min-width: 0; }
   textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -69,7 +70,9 @@
     <h1>manga-downloader</h1>
     <span id="runner" class="chip"><i></i><span id="runnerText">connecting…</span></span>
     <span class="spacer"></span>
-    <button id="pauseBtn" class="small">Pause</button>
+    <label class="sub" for="concurrency">Downloads at once</label>
+    <select id="concurrency" aria-label="Number of downloads running at the same time"></select>
+    <button id="pauseBtn" class="small">Stop queue</button>
   </header>
 
   <section class="card verify" id="verify" hidden>
@@ -89,6 +92,12 @@
       <button id="addBtn" class="primary">Add to queue</button>
       <button id="trackBtn">Track as series</button>
       <label class="sub"><input type="checkbox" id="autoDl"> download new chapters automatically</label>
+    </div>
+    <div class="row">
+      <label class="sub" for="outDir">Save to</label>
+      <input type="text" id="outDir" size="48" placeholder="Output folder" aria-label="Folder downloads are saved to">
+      <button id="outSave" class="small">Set folder</button>
+      <span class="sub">applies to downloads that start after this</span>
     </div>
   </section>
 
@@ -214,9 +223,14 @@ function render() {
   if (!state) return;
   renderVerification();
   const r = state.runner;
-  $('runner').className = 'chip ' + (r.paused ? 'paused' : (r.currentId ? 'run' : ''));
-  $('runnerText').textContent = r.paused ? 'paused' : (r.currentId ? 'downloading' : 'idle');
-  $('pauseBtn').textContent = r.paused ? 'Resume' : 'Pause';
+  $('runner').className = 'chip ' + (r.paused ? 'paused' : (r.active ? 'run' : ''));
+  $('runnerText').textContent = r.paused ? 'stopped' : (r.active ? 'downloading ' + r.active + ' of ' + r.concurrency : 'idle');
+  $('pauseBtn').textContent = r.paused ? 'Start queue' : 'Stop queue';
+  const pick = $('concurrency');
+  if (!pick.options.length) for (let n = 1; n <= r.maxConcurrency; n++) pick.append(new Option(n, n));
+  if (document.activeElement !== pick) pick.value = r.concurrency;
+  $('outDir').closest('.row').hidden = !state.outputDirectory;
+  if (document.activeElement !== $('outDir')) $('outDir').value = state.outputDirectory || '';
   const active = state.queue.filter(q => q.status === 'Queued' || q.status === 'Downloading').length;
   $('nQueue').textContent = state.queue.length ? ' ' + state.queue.length + (active ? ' (' + active + ' active)' : '') : '';
   $('nHistory').textContent = state.history.length ? ' ' + state.history.length : '';
@@ -247,6 +261,8 @@ $('trackBtn').onclick = async () => {
   if (ok) { $('urls').value = ''; toast('Tracking ' + ok + ' series'); refresh(); }
 };
 $('pauseBtn').onclick = () => act('/api/runner/' + (state && state.runner.paused ? 'resume' : 'pause'));
+$('concurrency').onchange = e => act('/api/runner/concurrency', { count: Number(e.target.value) });
+$('outSave').onclick = () => act('/api/settings/output', { path: $('outDir').value }, 'Output folder set');
 $('verifySend').onclick = () => act('/api/verify', { text: $('verifyText').value }, 'Thanks, continuing…');
 $('verifyCancel').onclick = () => act('/api/verify/cancel', {}, 'Check cancelled');
 $('clearDone').onclick = () => act('/api/queue/clear-completed');

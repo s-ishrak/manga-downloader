@@ -428,6 +428,98 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
+        public void StoppingTheQueueInterruptsRunningItemsAndStartingResumesThem()
+        {
+            http.Pages["https://t.test/g/1"] = "<html/>";
+            http.Files["https://img.test/1.jpg"] = Jpeg(1);
+            http.DownloadDelayMilliseconds = 1500;
+
+            using (var db = new LibraryDb(":memory:"))
+            using (var runner = Runner(db, Repository(GalleryLua)))
+            {
+                var item = db.Enqueue("https://t.test/g/1");
+                runner.Start();
+
+                Assert.True(SpinWait.SpinUntil(() => db.Get(item.Id).Status == QueueStatus.Downloading, 5000));
+                runner.Pause();
+
+                Assert.True(SpinWait.SpinUntil(() => runner.ActiveCount == 0, 8000), "the running item should be interrupted");
+                Assert.Equal(QueueStatus.Queued, db.Get(item.Id).Status); // not Stopped: starting the queue picks it up again
+
+                http.DownloadDelayMilliseconds = 0;
+                Thread.Sleep(300);
+                Assert.Equal(QueueStatus.Queued, db.Get(item.Id).Status);
+
+                runner.Resume();
+                Assert.True(SpinWait.SpinUntil(() => db.Get(item.Id).Status == QueueStatus.Completed, 8000), "item should complete once the queue is started");
+            }
+        }
+
+        [Fact]
+        public void ItemsDownloadOneAtATimeByDefault()
+        {
+            for (var i = 1; i <= 3; i++)
+            {
+                http.Pages["https://t.test/g/" + i] = "<html/>";
+                http.Files["https://img.test/" + i + ".jpg"] = Jpeg((byte)i);
+            }
+
+            http.DownloadDelayMilliseconds = 100;
+
+            using (var db = new LibraryDb(":memory:"))
+            {
+                for (var i = 1; i <= 3; i++)
+                    db.Enqueue("https://t.test/g/" + i);
+
+                Assert.Equal(3, Runner(db, Repository(GalleryLua)).RunUntilEmpty(CancellationToken.None));
+                Assert.Equal(1, http.MaxConcurrentDownloads);
+                Assert.All(db.ListQueue(), q => Assert.Equal(QueueStatus.Completed, q.Status));
+            }
+        }
+
+        [Fact]
+        public void ConcurrencyLimitLetsSeveralItemsDownloadTogether()
+        {
+            for (var i = 1; i <= 4; i++)
+            {
+                http.Pages["https://t.test/g/" + i] = "<html/>";
+                http.Files["https://img.test/" + i + ".jpg"] = Jpeg((byte)i);
+            }
+
+            http.DownloadDelayMilliseconds = 300;
+
+            using (var db = new LibraryDb(":memory:"))
+            {
+                for (var i = 1; i <= 4; i++)
+                    db.Enqueue("https://t.test/g/" + i);
+
+                var runner = Runner(db, Repository(GalleryLua));
+                runner.MaxConcurrent = 3;
+
+                Assert.Equal(4, runner.RunUntilEmpty(CancellationToken.None));
+                Assert.Equal(3, http.MaxConcurrentDownloads);
+                Assert.All(db.ListQueue(), q => Assert.Equal(QueueStatus.Completed, q.Status));
+                Assert.Equal(4, db.ListHistory().Count);
+            }
+        }
+
+        [Fact]
+        public void ConcurrencyLimitIsKeptWithinBounds()
+        {
+            using (var db = new LibraryDb(":memory:"))
+            {
+                var runner = Runner(db, Repository(GalleryLua));
+                Assert.Equal(1, runner.MaxConcurrent);
+
+                runner.MaxConcurrent = 0;
+                Assert.Equal(1, runner.MaxConcurrent);
+
+                runner.MaxConcurrent = 99;
+                Assert.Equal(QueueRunner.ConcurrencyLimit, runner.MaxConcurrent);
+            }
+        }
+
+        [Fact]
         public void StartingResumesItemsAKilledRunLeftDownloading()
         {
             http.Pages["https://t.test/g/1"] = "<html/>";

@@ -19,6 +19,7 @@ namespace MangaDownloader.Lua.Tests
         private readonly FixtureHttp fixture = new FixtureHttp();
         private readonly LibraryDb db = new LibraryDb(":memory:");
         private readonly QueueRunner runner;
+        private readonly DownloadOptions download;
         private readonly LocalWebServer server;
         private readonly HttpClient client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
         private readonly int port = CloudflareTests.FreePort();
@@ -37,8 +38,9 @@ namespace MangaDownloader.Lua.Tests
             fixture.Files["https://img.test/1.jpg"] = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 1 };
 
             var repository = ModuleRepository.LoadDirectory(modules, fixture);
-            runner = new QueueRunner(db, () => new DownloadEngine(repository, fixture, new DownloadOptions { OutputDirectory = Path.Combine(root, "out"), SaveFormat = SaveFormat.Folder }));
-            server = new LocalWebServer(db, runner, new SeriesTracker(db, repository), port, token: "test-token");
+            download = new DownloadOptions { OutputDirectory = Path.Combine(root, "out"), SaveFormat = SaveFormat.Folder };
+            runner = new QueueRunner(db, () => new DownloadEngine(repository, fixture, download));
+            server = new LocalWebServer(db, runner, new SeriesTracker(db, repository), port, token: "test-token", download: download);
             server.Start();
         }
 
@@ -162,6 +164,40 @@ namespace MangaDownloader.Lua.Tests
             Ok(Request(HttpMethod.Post, $"/api/queue/{id}/remove", "{}"));
             Assert.Null(db.Get(id));
             Assert.Equal(HttpStatusCode.NotFound, Call(Request(HttpMethod.Post, "/api/queue/999/retry", "{}")).Status);
+        }
+
+        [Fact]
+        public void OutputFolderCanBeChangedAndDownloadsUseIt()
+        {
+            Assert.Equal(Path.GetFullPath(Path.Combine(root, "out")), Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("outputDirectory").GetString());
+
+            var other = Path.Combine(root, "elsewhere", "manga");
+            var set = Ok(Request(HttpMethod.Post, "/api/settings/output", JsonSerializer.Serialize(new { path = other })));
+            Assert.Equal(other, set.GetProperty("outputDirectory").GetString());
+            Assert.True(Directory.Exists(other));
+            Assert.Equal(other, download.OutputDirectory);
+
+            Ok(Request(HttpMethod.Post, "/api/queue", "{\"urls\":\"https://t.test/s\"}"));
+            runner.Start();
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => db.ListQueue().All(q => q.Status == QueueStatus.Completed), 8000));
+            Assert.StartsWith(other, db.ListQueue().Single().Outputs.First());
+
+            Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/settings/output", "{\"path\":\"  \"}")).Status);
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, Call(Request(HttpMethod.Post, "/api/settings/output", "{\"path\":\"bad\\u0000name\"}")).Status);
+            Assert.Equal(other, download.OutputDirectory);
+        }
+
+        [Fact]
+        public void ConcurrencyCanBeChangedAndIsValidated()
+        {
+            Assert.Equal(1, Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("runner").GetProperty("concurrency").GetInt32());
+            Assert.Equal(3, Ok(Request(HttpMethod.Post, "/api/runner/concurrency", "{\"count\":3}")).GetProperty("concurrency").GetInt32());
+            Assert.Equal(3, runner.MaxConcurrent);
+
+            foreach (var bad in new[] { "{\"count\":0}", "{\"count\":99}", "{\"count\":\"2\"}", "{\"count\":1.5}", "{}" })
+                Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/runner/concurrency", bad)).Status);
+
+            Assert.Equal(3, runner.MaxConcurrent);
         }
 
         [Fact]

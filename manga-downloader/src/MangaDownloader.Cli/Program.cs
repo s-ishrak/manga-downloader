@@ -27,10 +27,10 @@ namespace MangaDownloader.Cli
             "                            [--delay MS] [--page-format F] [--chapter-format F] [--folder-format F]\n" +
             "                            [--convert webp,avif=jpg:80]... [--keep-images] [--overwrite]\n" +
             "  manga-downloader info|chapters|pages <url>\n" +
-            "  manga-downloader queue add <url>... | list | run | remove <id> | clear | import <queue.manga> [--map url=6,title=0,progress=11,status=12]\n" +
+            "  manga-downloader queue add <url>... | list | run [--concurrent N] | remove <id> | clear | import <queue.manga> [--map url=6,title=0,progress=11,status=12]\n" +
             "  manga-downloader history [--limit N] | history clear\n" +
             "  manga-downloader track add <url> [--auto] | list | check [id] | remove <id>\n" +
-            "  manga-downloader serve [--port 8780] [--open] [--check-every MINUTES]   (local web UI; takes the get options too)\n" +
+            "  manga-downloader serve [--port 8780] [--open] [--check-every MINUTES] [--concurrent N]   (local web UI; takes the get options too)\n" +
             "  manga-downloader modules list\n" +
             "  manga-downloader modules sync [--source GITHUB_FOLDER_URL] [--repositories repositories.json]\n" +
             "  manga-downloader cookies import <cookies.json> | list | clear\n" +
@@ -320,7 +320,10 @@ namespace MangaDownloader.Cli
 
                 var repository = ModuleRepository.LoadDirectory(options.ModulesDirectory, net.Http, net.Jar);
                 var credentials = new CredentialStore(options.CredentialsFile);
-                var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download, Console.WriteLine, credentials), Console.WriteLine);
+                var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download, Console.WriteLine, credentials), Console.WriteLine)
+                {
+                    MaxConcurrent = options.Int("concurrent", 1),
+                };
 
                 try
                 {
@@ -431,8 +434,8 @@ namespace MangaDownloader.Cli
                 var credentials = new CredentialStore(options.CredentialsFile);
                 var tracker = new SeriesTracker(library, repository, credentials);
 
-                using (var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download, null, credentials), Console.WriteLine))
-                using (var server = new LocalWebServer(library, runner, tracker, port))
+                using (var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download, null, credentials), Console.WriteLine) { MaxConcurrent = options.Int("concurrent", 1) })
+                using (var server = new LocalWebServer(library, runner, tracker, port, download: download))
                 {
                     // Cloudflare questions are answered in the web page instead of the console.
                     net.Verification.Target = server;
