@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\MangaDownloader.Core\MangaDownloader.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="index.html" LogicalName="index.html" />
+  </ItemGroup>
+
+</Project>

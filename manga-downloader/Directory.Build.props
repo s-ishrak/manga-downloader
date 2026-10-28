@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!-- Dev machine currently only has the .NET 5 SDK; bump to net8.0 once installed (plan §2.1). -->
+    <TargetFramework>net5.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>MangaDownloader</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+</Project>

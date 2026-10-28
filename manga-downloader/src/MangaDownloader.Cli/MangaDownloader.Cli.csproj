@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\MangaDownloader.Core\MangaDownloader.Core.csproj" />
+    <ProjectReference Include="..\MangaDownloader.Web\MangaDownloader.Web.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>manga-downloader</AssemblyName>
+  </PropertyGroup>
+
+</Project>

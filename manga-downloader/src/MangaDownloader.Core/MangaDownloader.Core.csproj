@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\MangaDownloader.Lua\MangaDownloader.Lua.csproj" />
+    <ProjectReference Include="..\MangaDownloader.Net\MangaDownloader.Net.csproj" />
+    <ProjectReference Include="..\MangaDownloader.Imaging\MangaDownloader.Imaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="5.0.17" />
+  </ItemGroup>
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+</Project>

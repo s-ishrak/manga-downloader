@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>manga-downloader</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2026; --muted: #667085; --line: #e3e6eb;
+    --accent: #3b5bdb; --accent-text: #ffffff; --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --track: #e9ecf1;
+    --shadow: 0 1px 2px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --panel: #1c1f25; --text: #e8eaee; --muted: #9aa3b2; --line: #2b303a;
+      --accent: #748ffc; --accent-text: #11131a; --ok: #69db7c; --warn: #fcc419; --bad: #ff8787; --track: #2b303a;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  .spacer { flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--track); font-size: 13px; color: var(--muted); }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .chip.run i { background: var(--ok); } .chip.paused i { background: var(--warn); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  .add { padding: 14px; display: grid; gap: 10px; margin-bottom: 16px; }
+  .verify { padding: 14px; display: grid; gap: 10px; margin-bottom: 16px; border-color: var(--warn); }
+  .verify h2 { margin: 0; font-size: 16px; } .verify ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  [hidden] { display: none !important; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg); color: var(--text); font: inherit; }
+  input[type=text] { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); color: var(--text); font: inherit; min-width: 0; }
+  textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
+  button.small { padding: 3px 9px; font-size: 13px; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  nav { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+  nav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
+  nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  nav .count { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .list { display: grid; }
+  .item { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: center; }
+  .item:first-child { border-top: none; }
+  .title { font-weight: 600; overflow-wrap: anywhere; }
+  .sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .sub a { color: inherit; }
+  .status { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .Completed { color: var(--ok); } .Failed { color: var(--bad); } .Downloading { color: var(--accent); } .Queued { color: var(--muted); } .Stopped { color: var(--warn); }
+  .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 6px; grid-column: 1 / -1; }
+  .bar > div { height: 100%; background: var(--accent); transition: width .3s; }
+  .err { color: var(--bad); font-size: 13px; overflow-wrap: anywhere; grid-column: 1 / -1; }
+  .actions { display: flex; gap: 6px; align-items: center; }
+  .empty { padding: 28px 14px; text-align: center; color: var(--muted); }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  .tools { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  @media (max-width: 560px) { .item { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>manga-downloader</h1>
+    <span id="runner" class="chip"><i></i><span id="runnerText">connecting…</span></span>
+    <span class="spacer"></span>
+    <button id="pauseBtn" class="small">Pause</button>
+  </header>
+
+  <section class="card verify" id="verify" hidden>
+    <h2 id="verifyTitle">Cloudflare check needed</h2>
+    <ol id="verifySteps"></ol>
+    <textarea id="verifyText" placeholder="Paste the copied cURL text here" aria-label="Copied page request"></textarea>
+    <div class="row">
+      <button id="verifySend" class="primary">Continue</button>
+      <button id="verifyCancel">Cancel</button>
+      <a id="verifyLink" class="sub" target="_blank" rel="noopener noreferrer">open the page again</a>
+    </div>
+  </section>
+
+  <section class="card add">
+    <textarea id="urls" placeholder="Paste gallery or series URLs, one per line" aria-label="URLs to download"></textarea>
+    <div class="row">
+      <button id="addBtn" class="primary">Add to queue</button>
+      <button id="trackBtn">Track as series</button>
+      <label class="sub"><input type="checkbox" id="autoDl"> download new chapters automatically</label>
+    </div>
+  </section>
+
+  <nav id="tabs">
+    <button data-tab="queue" class="on">Queue<span class="count" id="nQueue"></span></button>
+    <button data-tab="history">History<span class="count" id="nHistory"></span></button>
+    <button data-tab="tracked">Tracked series<span class="count" id="nTracked"></span></button>
+  </nav>
+
+  <section class="card" id="panel-queue"><div class="list" id="queue"></div>
+    <div class="tools">
+      <button class="small" id="clearDone">Clear completed</button>
+      <span class="spacer"></span>
+      <input type="text" id="importPath" size="34" placeholder="Path to queue.manga" aria-label="Path to a HDoujin queue.manga file">
+      <button class="small" id="importBtn">Import</button>
+    </div>
+  </section>
+  <section class="card" id="panel-history" hidden><div class="list" id="history"></div>
+    <div class="tools"><button class="small danger" id="clearHistory">Clear history</button></div>
+  </section>
+  <section class="card" id="panel-tracked" hidden><div class="list" id="tracked"></div>
+    <div class="tools"><button class="small" id="checkAll">Check all now</button></div>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = null, tab = 'queue';
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null) e.append(kid);
+  return e;
+}
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+async function act(path, body, okMsg) {
+  try { const d = await api(path, body || {}); if (okMsg) toast(okMsg); refresh(); return d; }
+  catch (e) { toast(e.message); }
+}
+
+function ago(iso) {
+  if (!iso) return 'never';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago';
+  if (s < 86400) return Math.floor(s / 3600) + ' h ago'; return Math.floor(s / 86400) + ' d ago';
+}
+
+function host(u) { try { return new URL(u).host; } catch { return u; } }
+
+function queueRow(q) {
+  const pct = q.status === 'Completed' ? 100 : Math.round((q.progress || 0) / 10);
+  const acts = el('div', { class: 'actions' });
+  if (q.status === 'Downloading' || q.status === 'Queued') acts.append(el('button', { class: 'small', text: 'Stop', onclick: () => act('/api/queue/' + q.id + '/cancel') }));
+  if (q.status === 'Failed' || q.status === 'Stopped') acts.append(el('button', { class: 'small', text: q.status === 'Stopped' ? 'Resume' : 'Retry', onclick: () => act('/api/queue/' + q.id + '/retry') }));
+  if (q.status !== 'Downloading') acts.append(el('button', { class: 'small danger', text: 'Remove', onclick: () => act('/api/queue/' + q.id + '/remove') }));
+  const row = el('div', { class: 'item' },
+    el('div', {}, el('div', { class: 'title', text: q.title || q.url }), el('div', { class: 'sub', text: host(q.url) + (q.pagesTotal ? ' · ' + q.pagesDone + ' pages' + (q.status === 'Downloading' ? ' so far' : '') : '') })),
+    el('div', { class: 'actions' }, el('span', { class: 'status ' + q.status, text: q.status }), acts));
+  if (q.status === 'Downloading' || (q.status !== 'Completed' && q.progress > 0)) row.append(el('div', { class: 'bar' }, el('div', { style: 'width:' + pct + '%' })));
+  if (q.error && q.status !== 'Completed') row.append(el('div', { class: 'err', text: q.error }));
+  if (q.status === 'Completed' && q.outputs && q.outputs.length) row.append(el('div', { class: 'sub', style: 'grid-column:1/-1', text: q.outputs.join('  ·  ') }));
+  return row;
+}
+
+function historyRow(h) {
+  return el('div', { class: 'item' },
+    el('div', {}, el('div', { class: 'title', text: h.title || h.url }), el('div', { class: 'sub', text: host(h.url) + ' · ' + h.pages + ' pages · ' + ago(h.finishedAt) })),
+    el('span', { class: 'status ' + h.status, text: h.status }),
+    h.error ? el('div', { class: 'err', text: h.error }) : null,
+    h.outputs && h.outputs.length ? el('div', { class: 'sub', style: 'grid-column:1/-1', text: h.outputs.join('  ·  ') }) : null);
+}
+
+function trackedRow(t) {
+  const flag = t.newCount > 0 ? el('span', { class: 'status Downloading', text: t.newCount + ' new' }) : el('span', { class: 'status Queued', text: 'up to date' });
+  const row = el('div', { class: 'item' },
+    el('div', {}, el('div', { class: 'title', text: t.title || t.url }),
+      el('div', { class: 'sub', text: host(t.url) + ' · ' + t.chapters + ' chapters known · checked ' + (t.checking ? 'now…' : ago(t.lastChecked)) })),
+    el('div', { class: 'actions' }, flag,
+      el('label', { class: 'sub' }, el('input', { type: 'checkbox', ...(t.autoDownload ? { checked: '' } : {}), onchange: e => act('/api/track/' + t.id + '/auto', { enabled: e.target.checked }) }), ' auto'),
+      el('button', { class: 'small', text: 'Check', onclick: () => act('/api/track/' + t.id + '/check', {}, 'Checking…') }),
+      el('button', { class: 'small', text: 'Download', onclick: () => act('/api/queue', { urls: t.url }, 'Queued') }),
+      el('button', { class: 'small danger', text: 'Stop tracking', onclick: () => act('/api/track/' + t.id + '/remove') })));
+  if (t.lastError) row.append(el('div', { class: 'err', text: t.lastError }));
+  return row;
+}
+
+function fill(id, items, make, emptyText) {
+  const box = $(id); box.replaceChildren();
+  if (!items.length) box.append(el('div', { class: 'empty', text: emptyText }));
+  else for (const i of items) box.append(make(i));
+}
+
+function renderVerification() {
+  const v = state.verification, box = $('verify');
+  if (!v) { box.hidden = true; return; }
+  if (box.hidden || box.dataset.host !== v.host) {
+    box.dataset.host = v.host;
+    $('verifyTitle').textContent = 'Cloudflare check needed for ' + v.host;
+    const ol = $('verifySteps'); ol.replaceChildren();
+    for (const s of state.verificationSteps) ol.append(el('li', { text: s }));
+    $('verifyLink').href = v.url; $('verifyText').value = '';
+  }
+  box.hidden = false;
+}
+
+function render() {
+  if (!state) return;
+  renderVerification();
+  const r = state.runner;
+  $('runner').className = 'chip ' + (r.paused ? 'paused' : (r.currentId ? 'run' : ''));
+  $('runnerText').textContent = r.paused ? 'paused' : (r.currentId ? 'downloading' : 'idle');
+  $('pauseBtn').textContent = r.paused ? 'Resume' : 'Pause';
+  const active = state.queue.filter(q => q.status === 'Queued' || q.status === 'Downloading').length;
+  $('nQueue').textContent = state.queue.length ? ' ' + state.queue.length + (active ? ' (' + active + ' active)' : '') : '';
+  $('nHistory').textContent = state.history.length ? ' ' + state.history.length : '';
+  $('nTracked').textContent = state.tracked.length ? ' ' + state.tracked.length : '';
+  fill('queue', state.queue, queueRow, 'The queue is empty. Paste a URL above.');
+  fill('history', state.history, historyRow, 'Nothing downloaded yet.');
+  fill('tracked', state.tracked, trackedRow, 'No tracked series. Paste a series URL and choose “Track as series”.');
+}
+
+async function refresh() {
+  try { state = await api('/api/state'); render(); }
+  catch (e) { $('runnerText').textContent = 'disconnected'; $('runner').className = 'chip'; }
+}
+
+$('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]'); if (!b) return;
+  tab = b.dataset.tab;
+  for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x === b);
+  for (const t of ['queue', 'history', 'tracked']) $('panel-' + t).hidden = t !== tab;
+});
+$('addBtn').onclick = async () => { const d = await act('/api/queue', { urls: $('urls').value }, 'Added to queue'); if (d) $('urls').value = ''; };
+$('trackBtn').onclick = async () => {
+  const urls = $('urls').value.split(/\s+/).filter(Boolean);
+  if (!urls.length) return toast('Paste a series URL first.');
+  toast('Reading chapter list…');
+  let ok = 0;
+  for (const url of urls) { try { await api('/api/track', { url, autoDownload: $('autoDl').checked }); ok++; } catch (e) { toast(url + ': ' + e.message); } }
+  if (ok) { $('urls').value = ''; toast('Tracking ' + ok + ' series'); refresh(); }
+};
+$('pauseBtn').onclick = () => act('/api/runner/' + (state && state.runner.paused ? 'resume' : 'pause'));
+$('verifySend').onclick = () => act('/api/verify', { text: $('verifyText').value }, 'Thanks, continuing…');
+$('verifyCancel').onclick = () => act('/api/verify/cancel', {}, 'Check cancelled');
+$('clearDone').onclick = () => act('/api/queue/clear-completed');
+$('clearHistory').onclick = () => act('/api/history/clear');
+$('checkAll').onclick = () => act('/api/track/check-all', {}, 'Checking all…');
+$('importBtn').onclick = async () => {
+  const d = await act('/api/import', { path: $('importPath').value.trim() });
+  if (d) toast('Imported ' + d.added + ' (' + d.alreadyPresent + ' already queued)');
+};
+
+refresh(); setInterval(refresh, 1500);
+</script>
+</body>
+</html>
