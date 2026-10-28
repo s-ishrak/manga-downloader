@@ -140,10 +140,14 @@ namespace MangaDownloader.Core.Library
             }
         }
 
-        public static ImportResult Import(LibraryDb library, string path, QueueColumnMap map = null)
+        public static ImportResult Import(LibraryDb library, string path, QueueColumnMap map = null) =>
+            ImportText(library, File.ReadAllText(path, Encoding.UTF8), map);
+
+        /// <summary>Imports the contents of a queue.manga file (the web page uploads the text, since a browser cannot share the file's path).</summary>
+        public static ImportResult ImportText(LibraryDb library, string text, QueueColumnMap map = null)
         {
             var result = new ImportResult();
-            var entries = ParseFile(path, map, out var version, result.Skipped);
+            var entries = Parse(text, map, out var version, result.Skipped);
             result.Version = version;
 
             foreach (var entry in entries)

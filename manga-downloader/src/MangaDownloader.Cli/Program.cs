@@ -39,6 +39,7 @@ namespace MangaDownloader.Cli
             "Common options:\n" +
             "  --modules DIR        Lua modules (else $MANGA_DOWNLOADER_MODULES, else ./modules/lua)\n" +
             "  --config DIR         cookies.json / credentials.json / library.db live here (default: %APPDATA%/manga-downloader)\n" +
+            "                       settings.json there holds what the web UI's Settings saved; flags given here override it\n" +
             "  --proxy URL          http(s) proxy, e.g. http://user:pass@host:8080\n" +
             "  --browser            on a Cloudflare check: a popup browser window opens; you pass the check there yourself and the\n" +
             "                       tool takes over the resulting cookies (nothing automates the page). [--browser-timeout SECONDS]\n" +
@@ -322,7 +323,7 @@ namespace MangaDownloader.Cli
                 var credentials = new CredentialStore(options.CredentialsFile);
                 var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download, Console.WriteLine, credentials), Console.WriteLine)
                 {
-                    MaxConcurrent = options.Int("concurrent", 1),
+                    MaxConcurrent = options.Int("concurrent", options.Settings.Concurrent ?? 1),
                 };
 
                 try
@@ -434,8 +435,9 @@ namespace MangaDownloader.Cli
                 var credentials = new CredentialStore(options.CredentialsFile);
                 var tracker = new SeriesTracker(library, repository, credentials);
 
-                using (var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download, null, credentials), Console.WriteLine) { MaxConcurrent = options.Int("concurrent", 1) })
-                using (var server = new LocalWebServer(library, runner, tracker, port, download: download))
+                // Each download gets its own copy of the options, so a setting changed in the web UI applies from the next download on.
+                using (var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download.Clone(), null, credentials), Console.WriteLine) { MaxConcurrent = options.Int("concurrent", options.Settings.Concurrent ?? 1) })
+                using (var server = new LocalWebServer(library, runner, tracker, port, download: download, settingsFile: options.SettingsFile) { CheckEveryMinutes = options.Int("check-every", options.Settings.CheckEveryMinutes ?? 0) })
                 {
                     // Cloudflare questions are answered in the web page instead of the console.
                     net.Verification.Target = server;
@@ -450,12 +452,18 @@ namespace MangaDownloader.Cli
                     if (options.Has("open"))
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(server.Url) { UseShellExecute = true });
 
-                    var every = options.Int("check-every", 0);
+                    // The interval can be changed in the web UI, so look at it again every few seconds.
+                    var lastCheck = DateTime.UtcNow;
 
-                    while (!quit.Token.WaitHandle.WaitOne(every > 0 ? TimeSpan.FromMinutes(every) : Timeout.InfiniteTimeSpan))
+                    while (!quit.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)))
                     {
-                        if (every > 0)
+                        var every = server.CheckEveryMinutes;
+
+                        if (every > 0 && DateTime.UtcNow - lastCheck >= TimeSpan.FromMinutes(every))
+                        {
+                            lastCheck = DateTime.UtcNow;
                             server.CheckAll();
+                        }
                     }
 
                     Console.WriteLine("stopping...");
@@ -512,26 +520,20 @@ namespace MangaDownloader.Cli
             }
         }
 
+        /// <summary>Command-line flag first, then settings.json (saved by the web UI), then the built-in default.</summary>
         private static DownloadOptions BuildDownloadOptions(Options options)
         {
+            var settings = options.Settings;
             var download = new DownloadOptions
             {
-                OutputDirectory = options.Flag("output") ?? "downloads",
-                MaxParallel = options.Int("parallel", 6),
-                RetryFailed = options.Int("retry", 4),
-                PageDelayMilliseconds = options.Int("delay", 0),
-                KeepImages = options.Has("keep-images"),
-                SkipExisting = !options.Has("overwrite"),
+                OutputDirectory = options.Flag("output") ?? settings.OutputDirectory ?? "downloads",
+                MaxParallel = options.Int("parallel", settings.Parallel ?? 6),
+                RetryFailed = options.Int("retry", settings.Retry ?? 4),
+                PageDelayMilliseconds = options.Int("delay", settings.DelayMilliseconds ?? 0),
+                KeepImages = options.Has("keep-images") || settings.KeepImages == true,
+                SkipExisting = !(options.Has("overwrite") || settings.Overwrite == true),
+                SaveFormat = AppSettings.ParseFormat(options.Flag("format") ?? settings.Format ?? "cbz"),
             };
-
-            switch ((options.Flag("format") ?? "cbz").ToLowerInvariant())
-            {
-                case "cbz": download.SaveFormat = SaveFormat.Cbz; break;
-                case "zip": download.SaveFormat = SaveFormat.Zip; break;
-                case "pdf": download.SaveFormat = SaveFormat.Pdf; break;
-                case "folder": download.SaveFormat = SaveFormat.Folder; break;
-                default: throw new InvalidOperationException("--format must be cbz, zip, pdf or folder.");
-            }
 
             foreach (var rule in options.Many("convert"))
                 download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(rule));
@@ -604,6 +606,12 @@ namespace MangaDownloader.Cli
             public string LibraryFile => Flag("library") ?? Path.Combine(ConfigDirectory, "library.db");
 
             public string CredentialsFile => Flag("credentials-file") ?? Path.Combine(ConfigDirectory, "credentials.json");
+
+            public string SettingsFile => Path.Combine(ConfigDirectory, "settings.json");
+
+            private AppSettings settings;
+
+            public AppSettings Settings => settings ??= AppSettings.Load(SettingsFile);
 
             public string Flag(string name) => flags.TryGetValue(name, out var v) ? v : null;
 

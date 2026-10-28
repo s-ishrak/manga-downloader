@@ -131,6 +131,12 @@ namespace MangaDownloader.Lua.Tests
 
                 db.SetProgress(old.Id, 3, 10, null, 420);
                 Assert.Equal(420, db.Get(old.Id).Progress);
+                Assert.Equal((0, 0), (db.Get(old.Id).ChaptersDone, db.Get(old.Id).ChaptersTotal));
+
+                db.SetProgress(old.Id, 3, 10, null, null, 1, 4);
+                Assert.Equal((1, 4), (db.Get(old.Id).ChaptersDone, db.Get(old.Id).ChaptersTotal));
+                db.SetProgress(old.Id, 5, 10); // chapters left alone when not given
+                Assert.Equal((1, 4), (db.Get(old.Id).ChaptersDone, db.Get(old.Id).ChaptersTotal));
             }
 
             using (var again = new LibraryDb(file)) // opening an upgraded database must not fail or re-run the upgrade
@@ -173,6 +179,11 @@ namespace MangaDownloader.Lua.Tests
                 var item = db.Enqueue("https://t.test/s");
                 new QueueRunner(db, () => new DownloadEngine(repository, http, new DownloadOptions { OutputDirectory = Path.Combine(root, "out2"), SaveFormat = SaveFormat.Folder })).RunUntilEmpty(CancellationToken.None);
                 Assert.Equal(1000, db.Get(item.Id).Progress);
+                Assert.Equal((2, 2), (db.Get(item.Id).ChaptersDone, db.Get(item.Id).ChaptersTotal));
+
+                db.SetStatus(item.Id, QueueStatus.Failed);
+                db.Enqueue("https://t.test/s"); // queued again: starts from scratch
+                Assert.Equal((0, 0), (db.Get(item.Id).ChaptersDone, db.Get(item.Id).ChaptersTotal));
             }
         }
     }

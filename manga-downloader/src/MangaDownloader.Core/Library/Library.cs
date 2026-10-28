@@ -28,6 +28,10 @@ namespace MangaDownloader.Core.Library
 
         /// <summary>Overall completion in permille (0-1000).</summary>
         public int Progress { get; set; }
+
+        /// <summary>Chapters finished / found so far, summed over every gallery the item turned into (0 before the download starts).</summary>
+        public int ChaptersDone { get; set; }
+        public int ChaptersTotal { get; set; }
         public string Error { get; set; }
         public List<string> Outputs { get; set; } = new List<string>();
         public DateTime AddedAt { get; set; }
@@ -146,6 +150,14 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                 Exec("ALTER TABLE queue ADD COLUMN progress INTEGER NOT NULL DEFAULT 0;");
                 Exec("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '2');");
             }
+
+            if (version < 3)
+            {
+                // a series downloads chapter by chapter, and its page total only grows as each chapter starts, so chapters say more
+                Exec("ALTER TABLE queue ADD COLUMN chapters_done INTEGER NOT NULL DEFAULT 0;");
+                Exec("ALTER TABLE queue ADD COLUMN chapters_total INTEGER NOT NULL DEFAULT 0;");
+                Exec("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '3');");
+            }
         }
 
         // ---- queue ---------------------------------------------------------------------------------------------
@@ -179,7 +191,7 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                     if (existing.Status == QueueStatus.Queued || existing.Status == QueueStatus.Downloading)
                         return existing;
 
-                    Exec("UPDATE queue SET status=$s, error=NULL, pages_done=0, pages_total=0, progress=0, updated_at=$t, position=$p WHERE id=$id",
+                    Exec("UPDATE queue SET status=$s, error=NULL, pages_done=0, pages_total=0, progress=0, chapters_done=0, chapters_total=0, updated_at=$t, position=$p WHERE id=$id",
                         ("$s", status.ToString()), ("$t", Now()), ("$p", NextPosition()), ("$id", existing.Id));
                     return Get(existing.Id);
                 }
@@ -219,11 +231,12 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                     ("$s", status.ToString()), ("$e", error), ("$o", outputs == null ? null : JsonSerializer.Serialize(outputs)), ("$t", Now()), ("$id", id));
         }
 
-        public void SetProgress(long id, int done, int total, string title = null, int? permille = null)
+        public void SetProgress(long id, int done, int total, string title = null, int? permille = null, int? chaptersDone = null, int? chaptersTotal = null)
         {
             lock (gate)
-                Exec("UPDATE queue SET pages_done=$d, pages_total=$n, title=COALESCE($title, title), progress=COALESCE($p, progress), updated_at=$t WHERE id=$id",
-                    ("$d", done), ("$n", total), ("$title", title), ("$p", permille), ("$t", Now()), ("$id", id));
+                Exec("UPDATE queue SET pages_done=$d, pages_total=$n, title=COALESCE($title, title), progress=COALESCE($p, progress), " +
+                     "chapters_done=COALESCE($cd, chapters_done), chapters_total=COALESCE($ct, chapters_total), updated_at=$t WHERE id=$id",
+                    ("$d", done), ("$n", total), ("$title", title), ("$p", permille), ("$cd", chaptersDone), ("$ct", chaptersTotal), ("$t", Now()), ("$id", id));
         }
 
         public bool RemoveFromQueue(long id)
@@ -385,6 +398,8 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
             PagesDone = r.GetInt32(r.GetOrdinal("pages_done")),
             PagesTotal = r.GetInt32(r.GetOrdinal("pages_total")),
             Progress = r.GetInt32(r.GetOrdinal("progress")),
+            ChaptersDone = r.GetInt32(r.GetOrdinal("chapters_done")),
+            ChaptersTotal = r.GetInt32(r.GetOrdinal("chapters_total")),
             Error = Str(r, "error"),
             Outputs = StringList(Str(r, "outputs")),
             AddedAt = Date(r, "added_at"),

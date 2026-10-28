@@ -61,7 +61,19 @@
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
   .toast.show { opacity: 1; }
   .tools { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  @media (max-width: 560px) { .item { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
+  input[type=number] { width: 7em; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--bg); color: var(--text); font: inherit; }
+  .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; padding: 16px 14px; }
+  .form > label:not(.check) { color: var(--muted); font-size: 14px; }
+  .form .check { display: flex; gap: 8px; align-items: center; }
+  .form select { justify-self: start; padding: 6px 8px; font-size: 15px; } .form input[type=text] { max-width: 640px; }
+  #saveSummary a { color: var(--accent); cursor: pointer; }
+  .banner { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--bad); border-radius: 12px; color: var(--bad); background: var(--panel); font-size: 14px; }
+  button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
+  body.dropping .wrap { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: 12px; }
+  @media (max-width: 560px) {
+    .item { grid-template-columns: 1fr; } .actions { justify-content: flex-start; }
+    .form { grid-template-columns: 1fr; gap: 4px; } .form > span:empty { display: none; } .form > label + * { margin-bottom: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -75,6 +87,8 @@
     <button id="pauseBtn" class="small">Stop queue</button>
   </header>
 
+  <div class="banner" id="offline" role="alert" hidden></div>
+
   <section class="card verify" id="verify" hidden>
     <h2 id="verifyTitle">Cloudflare check needed</h2>
     <ol id="verifySteps"></ol>
@@ -87,24 +101,20 @@
   </section>
 
   <section class="card add">
-    <textarea id="urls" placeholder="Paste gallery or series URLs, one per line" aria-label="URLs to download"></textarea>
+    <textarea id="urls" placeholder="Paste gallery or series URLs, one per line (Ctrl+Enter adds them to the queue)" aria-label="URLs to download"></textarea>
     <div class="row">
       <button id="addBtn" class="primary">Add to queue</button>
       <button id="trackBtn">Track as series</button>
       <label class="sub"><input type="checkbox" id="autoDl"> download new chapters automatically</label>
     </div>
-    <div class="row">
-      <label class="sub" for="outDir">Save to</label>
-      <input type="text" id="outDir" size="48" placeholder="Output folder" aria-label="Folder downloads are saved to">
-      <button id="outSave" class="small">Set folder</button>
-      <span class="sub">applies to downloads that start after this</span>
-    </div>
+    <div class="sub" id="saveSummary" hidden>Saving to <span id="sumPath"></span> as <span id="sumFormat"></span> · <a id="sumChange" href="#settings">change</a></div>
   </section>
 
   <nav id="tabs">
     <button data-tab="queue" class="on">Queue<span class="count" id="nQueue"></span></button>
     <button data-tab="history">History<span class="count" id="nHistory"></span></button>
     <button data-tab="tracked">Tracked series<span class="count" id="nTracked"></span></button>
+    <button data-tab="settings">Settings</button>
   </nav>
 
   <section class="card" id="panel-queue"><div class="list" id="queue"></div>
@@ -113,6 +123,8 @@
       <span class="spacer"></span>
       <input type="text" id="importPath" size="34" placeholder="Path to queue.manga" aria-label="Path to a HDoujin queue.manga file">
       <button class="small" id="importBtn">Import</button>
+      <button class="small" id="importPick" title="You can also drop a queue.manga file anywhere on this page">Choose file…</button>
+      <input type="file" id="importFile" accept=".manga,.txt" multiple hidden>
     </div>
   </section>
   <section class="card" id="panel-history" hidden><div class="list" id="history"></div>
@@ -120,6 +132,33 @@
   </section>
   <section class="card" id="panel-tracked" hidden><div class="list" id="tracked"></div>
     <div class="tools"><button class="small" id="checkAll">Check all now</button></div>
+  </section>
+  <section class="card" id="panel-settings" hidden>
+    <form id="settings" class="form" novalidate>
+      <label for="sOut">Save to</label>
+      <input type="text" id="sOut" name="outputDirectory" placeholder="Output folder">
+      <label for="sFormat">Save as</label>
+      <select id="sFormat" name="format">
+        <option value="cbz">CBZ (comic archive)</option><option value="zip">ZIP</option><option value="pdf">PDF</option><option value="folder">Folder of images</option>
+      </select>
+      <label for="sParallel">Pages at once</label>
+      <span><input type="number" id="sParallel" name="parallel" min="1" step="1"> <span class="sub">per download</span></span>
+      <label for="sRetry">Retries per page</label>
+      <input type="number" id="sRetry" name="retry" min="0" step="1">
+      <label for="sDelay">Delay between pages</label>
+      <span><input type="number" id="sDelay" name="delayMilliseconds" min="0" step="100"> <span class="sub">ms</span></span>
+      <span></span>
+      <label class="check"><input type="checkbox" id="sKeep" name="keepImages"> Keep the image folder after packing</label>
+      <span></span>
+      <label class="check"><input type="checkbox" id="sOverwrite" name="overwrite"> Download again even if the file already exists</label>
+      <label for="sCheck">Check tracked series</label>
+      <span>every <input type="number" id="sCheck" name="checkEveryMinutes" min="0" step="5"> <span class="sub">minutes (0 = only when you click Check)</span></span>
+    </form>
+    <div class="tools">
+      <button class="small primary" id="settingsSave">Save settings</button>
+      <button class="small" id="settingsRevert">Undo changes</button>
+      <span class="sub" id="settingsNote"></span>
+    </div>
   </section>
 </div>
 <div class="toast" id="toast" role="status"></div>
@@ -137,15 +176,15 @@ function el(tag, attrs, ...kids) {
   return e;
 }
 
-function toast(msg) {
+function toast(msg, ms) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3500);
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), ms || 3500);
 }
 
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  if (!r.ok) throw Object.assign(new Error(data.error || ('HTTP ' + r.status)), { status: r.status });
   return data;
 }
 
@@ -163,14 +202,23 @@ function ago(iso) {
 
 function host(u) { try { return new URL(u).host; } catch { return u; } }
 
+// A series' page total only grows as each chapter starts, so for series the chapter count is the meaningful part.
+function progressText(q) {
+  const series = q.chaptersTotal > 1, done = q.status === 'Completed', parts = [];
+  if (series) parts.push(done ? q.chaptersTotal + ' chapters' : 'chapter ' + Math.min(q.chaptersDone + 1, q.chaptersTotal) + ' of ' + q.chaptersTotal);
+  if (q.pagesTotal) parts.push(series || done ? q.pagesDone + ' pages' : q.pagesDone + ' / ' + q.pagesTotal + ' pages');
+  if (!done && (q.status === 'Downloading' || q.progress > 0)) parts.push(Math.floor((q.progress || 0) / 10) + '%');
+  return parts.join(' · ');
+}
+
 function queueRow(q) {
-  const pct = q.status === 'Completed' ? 100 : Math.round((q.progress || 0) / 10);
+  const pct = q.status === 'Completed' ? 100 : Math.floor((q.progress || 0) / 10);
   const acts = el('div', { class: 'actions' });
   if (q.status === 'Downloading' || q.status === 'Queued') acts.append(el('button', { class: 'small', text: 'Stop', onclick: () => act('/api/queue/' + q.id + '/cancel') }));
   if (q.status === 'Failed' || q.status === 'Stopped') acts.append(el('button', { class: 'small', text: q.status === 'Stopped' ? 'Resume' : 'Retry', onclick: () => act('/api/queue/' + q.id + '/retry') }));
   if (q.status !== 'Downloading') acts.append(el('button', { class: 'small danger', text: 'Remove', onclick: () => act('/api/queue/' + q.id + '/remove') }));
   const row = el('div', { class: 'item' },
-    el('div', {}, el('div', { class: 'title', text: q.title || q.url }), el('div', { class: 'sub', text: host(q.url) + (q.pagesTotal ? ' · ' + q.pagesDone + ' pages' + (q.status === 'Downloading' ? ' so far' : '') : '') })),
+    el('div', {}, el('div', { class: 'title', text: q.title || q.url }), el('div', { class: 'sub', text: [host(q.url), progressText(q)].filter(Boolean).join(' · ') })),
     el('div', { class: 'actions' }, el('span', { class: 'status ' + q.status, text: q.status }), acts));
   if (q.status === 'Downloading' || (q.status !== 'Completed' && q.progress > 0)) row.append(el('div', { class: 'bar' }, el('div', { style: 'width:' + pct + '%' })));
   if (q.error && q.status !== 'Completed') row.append(el('div', { class: 'err', text: q.error }));
@@ -229,8 +277,7 @@ function render() {
   const pick = $('concurrency');
   if (!pick.options.length) for (let n = 1; n <= r.maxConcurrency; n++) pick.append(new Option(n, n));
   if (document.activeElement !== pick) pick.value = r.concurrency;
-  $('outDir').closest('.row').hidden = !state.outputDirectory;
-  if (document.activeElement !== $('outDir')) $('outDir').value = state.outputDirectory || '';
+  renderSettings();
   const active = state.queue.filter(q => q.status === 'Queued' || q.status === 'Downloading').length;
   $('nQueue').textContent = state.queue.length ? ' ' + state.queue.length + (active ? ' (' + active + ' active)' : '') : '';
   $('nHistory').textContent = state.history.length ? ' ' + state.history.length : '';
@@ -240,38 +287,124 @@ function render() {
   fill('tracked', state.tracked, trackedRow, 'No tracked series. Paste a series URL and choose “Track as series”.');
 }
 
+const FORMAT_NAMES = { cbz: 'CBZ', zip: 'ZIP', pdf: 'PDF', folder: 'image folders' };
+const NUMBER_SETTINGS = ['parallel', 'retry', 'delayMilliseconds', 'checkEveryMinutes'];
+let settingsDirty = false;
+
+// The form is filled from the server until you start editing it, so polling never overwrites what you typed.
+function renderSettings() {
+  const s = state.settings;
+  $('saveSummary').hidden = !s;
+  document.querySelector('#tabs [data-tab=settings]').hidden = !s;
+  if (!s) return;
+  $('sumPath').textContent = state.outputDirectory;
+  $('sumFormat').textContent = FORMAT_NAMES[s.format] || s.format;
+  $('settingsNote').textContent = 'Applies to downloads that start after saving' + (s.saved ? '; kept for next time.' : ' (this run only).');
+  if (settingsDirty) return;
+  const f = $('settings').elements;
+  f.outputDirectory.value = state.outputDirectory;
+  f.format.value = s.format;
+  for (const n of NUMBER_SETTINGS) f[n].value = s[n];
+  f.parallel.max = s.limits.parallel; f.retry.max = s.limits.retry; f.delayMilliseconds.max = s.limits.delayMilliseconds;
+  f.keepImages.checked = s.keepImages; f.overwrite.checked = s.overwrite;
+}
+
+// Sends only what differs from the current settings, so values given on the command line are not saved by accident.
+async function saveSettings() {
+  const s = state && state.settings; if (!s) return;
+  const f = $('settings').elements, body = {};
+  if (f.outputDirectory.value.trim() !== state.outputDirectory) body.outputDirectory = f.outputDirectory.value;
+  if (f.format.value !== s.format) body.format = f.format.value;
+  for (const n of NUMBER_SETTINGS) {
+    if (f[n].value === '') return toast('Fill in every number.');
+    if (Number(f[n].value) !== s[n]) body[n] = Number(f[n].value);
+  }
+  if (f.keepImages.checked !== s.keepImages) body.keepImages = f.keepImages.checked;
+  if (f.overwrite.checked !== s.overwrite) body.overwrite = f.overwrite.checked;
+  if (!Object.keys(body).length) { settingsDirty = false; return toast('Nothing changed.'); }
+  try { await api('/api/settings', body); settingsDirty = false; toast('Settings saved'); refresh(); }
+  catch (e) { toast(e.message); }
+}
+
+function showTab(name) {
+  tab = name;
+  for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x.dataset.tab === name);
+  for (const t of ['queue', 'history', 'tracked', 'settings']) $('panel-' + t).hidden = t !== name;
+}
+
+// While the server cannot be reached, say so and disable every control (tabs stay usable); polling carries on and undoes it.
+let offline = null;
+function setOffline(kind) {
+  if (kind === offline) return;
+  offline = kind;
+  const b = $('offline'); b.hidden = !kind;
+  b.textContent = kind === 'auth'
+    ? 'This page’s access token is no longer valid, probably because manga-downloader was restarted. Open the new address it printed.'
+    : 'Lost the connection to manga-downloader. Is it still running? Retrying…';
+  for (const c of document.querySelectorAll('.wrap button, .wrap input, .wrap select, .wrap textarea')) if (!c.closest('#tabs')) c.disabled = !!kind;
+  if (kind) { $('runnerText').textContent = 'disconnected'; $('runner').className = 'chip'; }
+}
+
 async function refresh() {
-  try { state = await api('/api/state'); render(); }
-  catch (e) { $('runnerText').textContent = 'disconnected'; $('runner').className = 'chip'; }
+  try { state = await api('/api/state'); setOffline(null); render(); }
+  catch (e) { setOffline(e.status === 401 || e.status === 403 ? 'auth' : 'down'); }
 }
 
 $('tabs').addEventListener('click', e => {
-  const b = e.target.closest('button[data-tab]'); if (!b) return;
-  tab = b.dataset.tab;
-  for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x === b);
-  for (const t of ['queue', 'history', 'tracked']) $('panel-' + t).hidden = t !== tab;
+  const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab);
 });
+$('sumChange').onclick = e => { e.preventDefault(); showTab('settings'); $('sOut').focus(); };
+$('settings').addEventListener('input', () => { settingsDirty = true; });
+$('settings').addEventListener('submit', e => { e.preventDefault(); saveSettings(); });
+$('settings').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); saveSettings(); } });
+$('settingsSave').onclick = saveSettings;
+$('settingsRevert').onclick = () => { settingsDirty = false; render(); };
 $('addBtn').onclick = async () => { const d = await act('/api/queue', { urls: $('urls').value }, 'Added to queue'); if (d) $('urls').value = ''; };
 $('trackBtn').onclick = async () => {
   const urls = $('urls').value.split(/\s+/).filter(Boolean);
   if (!urls.length) return toast('Paste a series URL first.');
-  toast('Reading chapter list…');
-  let ok = 0;
-  for (const url of urls) { try { await api('/api/track', { url, autoDownload: $('autoDl').checked }); ok++; } catch (e) { toast(url + ': ' + e.message); } }
-  if (ok) { $('urls').value = ''; toast('Tracking ' + ok + ' series'); refresh(); }
+  toast('Reading chapter list…', 60000);
+  // Failed URLs stay in the box so they can be fixed; the toast sums up instead of each error replacing the last.
+  const failed = [];
+  for (const url of urls) { try { await api('/api/track', { url, autoDownload: $('autoDl').checked }); } catch (e) { failed.push({ url, error: e.message }); } }
+  $('urls').value = failed.map(f => f.url).join('\n');
+  const ok = urls.length - failed.length;
+  if (ok) refresh();
+  if (!failed.length) return toast('Tracking ' + ok + ' series');
+  toast((ok ? 'Tracking ' + ok + ' series; ' : '') + failed.length + ' could not be tracked: ' + failed[0].url + ': ' + failed[0].error +
+    (failed.length > 1 ? ' (and ' + (failed.length - 1) + ' more, left in the box)' : ''), 9000);
 };
+$('urls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('addBtn').click(); } });
 $('pauseBtn').onclick = () => act('/api/runner/' + (state && state.runner.paused ? 'resume' : 'pause'));
 $('concurrency').onchange = e => act('/api/runner/concurrency', { count: Number(e.target.value) });
-$('outSave').onclick = () => act('/api/settings/output', { path: $('outDir').value }, 'Output folder set');
 $('verifySend').onclick = () => act('/api/verify', { text: $('verifyText').value }, 'Thanks, continuing…');
 $('verifyCancel').onclick = () => act('/api/verify/cancel', {}, 'Check cancelled');
 $('clearDone').onclick = () => act('/api/queue/clear-completed');
 $('clearHistory').onclick = () => act('/api/history/clear');
 $('checkAll').onclick = () => act('/api/track/check-all', {}, 'Checking all…');
-$('importBtn').onclick = async () => {
-  const d = await act('/api/import', { path: $('importPath').value.trim() });
-  if (d) toast('Imported ' + d.added + ' (' + d.alreadyPresent + ' already queued)');
-};
+function imported(d, name) { if (d) toast((name ? name + ': imported ' : 'Imported ') + d.added + ' (' + d.alreadyPresent + ' already queued)'); }
+$('importBtn').onclick = async () => imported(await act('/api/import', { path: $('importPath').value.trim() }));
+$('importPath').addEventListener('keydown', e => { if (e.key === 'Enter') $('importBtn').click(); });
+
+// A browser cannot tell the page where a file lives, so picked or dropped files are sent as text.
+async function importFiles(files) {
+  showTab('queue');
+  for (const f of files) {
+    if (f.size > 20e6) { toast(f.name + ' is too big to be a queue file.'); continue; }
+    imported(await act('/api/import', { text: await f.text() }), f.name);
+  }
+}
+$('importPick').onclick = () => $('importFile').click();
+$('importFile').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
+const draggingFiles = e => !offline && e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+document.addEventListener('dragover', e => { if (draggingFiles(e)) { e.preventDefault(); document.body.classList.add('dropping'); } });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
+document.addEventListener('drop', e => {
+  document.body.classList.remove('dropping');
+  if (!draggingFiles(e)) return;
+  e.preventDefault();
+  importFiles([...e.dataTransfer.files]);
+});
 
 refresh(); setInterval(refresh, 1500);
 </script>

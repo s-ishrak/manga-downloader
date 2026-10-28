@@ -44,7 +44,7 @@ namespace MangaDownloader.Core.Download
         public bool KeepImages { get; set; }
 
         /// <summary>Per-image format conversions applied after download (first matching rule wins), e.g. webp,avif=jpg:80.</summary>
-        public List<ImageConversionRule> ConversionRules { get; } = new List<ImageConversionRule>();
+        public List<ImageConversionRule> ConversionRules { get; private set; } = new List<ImageConversionRule>();
         public bool SkipExisting { get; set; } = true;
         public bool FixLongPaths { get; set; } = true;
 
@@ -53,6 +53,14 @@ namespace MangaDownloader.Core.Download
 
         /// <summary>How many levels of list pages (tags, searches) to follow.</summary>
         public int MaxQueueDepth { get; set; } = 2;
+
+        /// <summary>A snapshot for one download, so settings changed while it runs only apply to the next one.</summary>
+        public DownloadOptions Clone()
+        {
+            var copy = (DownloadOptions)MemberwiseClone();
+            copy.ConversionRules = new List<ImageConversionRule>(ConversionRules);
+            return copy;
+        }
     }
 
     /// <summary>Raised after every page of a gallery finishes (downloaded, resumed or failed).</summary>

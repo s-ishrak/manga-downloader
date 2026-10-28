@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using MangaDownloader.Core;
 using MangaDownloader.Core.Download;
 using MangaDownloader.Core.Library;
 
@@ -42,10 +43,15 @@ namespace MangaDownloader.Web
         private readonly object verificationGate = new object();
         private PendingVerification pending;
         private Task acceptLoop;
+        private readonly string settingsFile;
+        private readonly object settingsGate = new object();
+        private int checkEveryMinutes;
 
-        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null)
+        /// <param name="settingsFile">Where changes made in the page are saved (only the fields changed there); null keeps them for this run only.</param>
+        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null, string settingsFile = null)
         {
             this.download = download;
+            this.settingsFile = settingsFile;
             this.library = library;
             this.runner = runner;
             this.tracker = tracker;
@@ -57,6 +63,13 @@ namespace MangaDownloader.Web
         public int Port { get; }
 
         public string Token { get; }
+
+        /// <summary>Minutes between automatic checks of all tracked series (0 = off). The host's timer reads it; the page can change it.</summary>
+        public int CheckEveryMinutes
+        {
+            get => Volatile.Read(ref checkEveryMinutes);
+            set => Volatile.Write(ref checkEveryMinutes, Math.Max(0, value));
+        }
 
         /// <summary>The address to open: it carries the token once, then a cookie takes over.</summary>
         public string Url => $"http://127.0.0.1:{Port}/?token={Token}";
@@ -244,6 +257,18 @@ namespace MangaDownloader.Web
         {
             runner = new { running = runner.IsRunning, paused = runner.IsPaused, active = runner.ActiveCount, concurrency = runner.MaxConcurrent, maxConcurrency = QueueRunner.ConcurrencyLimit },
             outputDirectory = download == null ? null : Path.GetFullPath(download.OutputDirectory),
+            settings = download == null ? null : new
+            {
+                format = download.SaveFormat.ToString().ToLowerInvariant(),
+                parallel = download.MaxParallel,
+                retry = download.RetryFailed,
+                delayMilliseconds = download.PageDelayMilliseconds,
+                keepImages = download.KeepImages,
+                overwrite = !download.SkipExisting,
+                checkEveryMinutes = CheckEveryMinutes,
+                saved = settingsFile != null,
+                limits = new { parallel = AppSettings.MaxParallel, retry = AppSettings.MaxRetry, delayMilliseconds = AppSettings.MaxDelayMilliseconds },
+            },
             verification = Pending(),
             verificationSteps = MangaDownloader.Net.VerificationText.Steps,
             queue = library.ListQueue(),
@@ -320,6 +345,7 @@ namespace MangaDownloader.Web
                         throw new ApiException(400, $"count must be a whole number from 1 to {QueueRunner.ConcurrencyLimit}.");
 
                     runner.MaxConcurrent = n;
+                    Persist(s => s.Concurrent = n);
                 }
                 else throw new ApiException(404, "unknown runner action");
 
@@ -331,23 +357,85 @@ namespace MangaDownloader.Web
                 if (download == null)
                     throw new ApiException(404, "The output folder cannot be changed here.");
 
-                var folder = (Str("path") ?? "").Trim();
+                var folder = UsableFolder(Str("path"));
+                download.OutputDirectory = folder; // downloads that start from now on use it
+                Persist(s => s.OutputDirectory = folder);
+                return new { outputDirectory = folder };
+            }
 
-                if (folder.Length == 0)
-                    throw new ApiException(400, "Enter a folder.");
+            if (parts.Length == 2 && parts[1] == "settings")
+            {
+                if (download == null)
+                    throw new ApiException(404, "Settings cannot be changed here.");
+
+                // Every field is optional; all are checked before any is applied, so a bad value changes nothing.
+                int? Int(string name, int min, int max)
+                {
+                    if (!args.TryGetProperty(name, out var p) || p.ValueKind == JsonValueKind.Null)
+                        return null;
+
+                    if (p.ValueKind != JsonValueKind.Number || !p.TryGetInt32(out var n) || n < min || n > max)
+                        throw new ApiException(400, $"{name} must be a whole number from {min} to {max}.");
+
+                    return n;
+                }
+
+                bool? Flag(string name)
+                {
+                    if (!args.TryGetProperty(name, out var p) || p.ValueKind == JsonValueKind.Null)
+                        return null;
+
+                    if (p.ValueKind != JsonValueKind.True && p.ValueKind != JsonValueKind.False)
+                        throw new ApiException(400, name + " must be true or false.");
+
+                    return p.GetBoolean();
+                }
+
+                var folder = Str("outputDirectory") == null ? null : UsableFolder(Str("outputDirectory"));
+                var formatText = Str("format");
+                SaveFormat? format;
 
                 try
                 {
-                    folder = Path.GetFullPath(folder);
-                    Directory.CreateDirectory(folder);
+                    format = formatText == null ? (SaveFormat?)null : AppSettings.ParseFormat(formatText);
                 }
-                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException || e is NotSupportedException)
+                catch (FormatException e)
                 {
-                    throw new ApiException(422, "Cannot use that folder: " + e.Message);
+                    throw new ApiException(400, e.Message);
                 }
 
-                download.OutputDirectory = folder; // downloads that start from now on use it
-                return new { outputDirectory = folder };
+                var parallel = Int("parallel", 1, AppSettings.MaxParallel);
+                var retry = Int("retry", 0, AppSettings.MaxRetry);
+                var delay = Int("delayMilliseconds", 0, AppSettings.MaxDelayMilliseconds);
+                var concurrency = Int("concurrency", 1, QueueRunner.ConcurrencyLimit);
+                var checkEvery = Int("checkEveryMinutes", 0, 7 * 24 * 60);
+                var keepImages = Flag("keepImages");
+                var overwrite = Flag("overwrite");
+
+                if (folder != null) download.OutputDirectory = folder;
+                if (format != null) download.SaveFormat = format.Value;
+                if (parallel != null) download.MaxParallel = parallel.Value;
+                if (retry != null) download.RetryFailed = retry.Value;
+                if (delay != null) download.PageDelayMilliseconds = delay.Value;
+                if (keepImages != null) download.KeepImages = keepImages.Value;
+                if (overwrite != null) download.SkipExisting = !overwrite.Value;
+                if (concurrency != null) runner.MaxConcurrent = concurrency.Value;
+                if (checkEvery != null) CheckEveryMinutes = checkEvery.Value;
+
+                Persist(s =>
+                {
+                    s.OutputDirectory = folder ?? s.OutputDirectory;
+                    s.Format = format == null ? s.Format : formatText.Trim().ToLowerInvariant();
+                    s.Parallel = parallel ?? s.Parallel;
+                    s.Retry = retry ?? s.Retry;
+                    s.DelayMilliseconds = delay ?? s.DelayMilliseconds;
+                    s.KeepImages = keepImages ?? s.KeepImages;
+                    s.Overwrite = overwrite ?? s.Overwrite;
+                    s.Concurrent = concurrency ?? s.Concurrent;
+                    s.CheckEveryMinutes = checkEvery ?? s.CheckEveryMinutes;
+                });
+
+                return new { saved = settingsFile != null };
             }
 
             if (parts.Length >= 2 && parts[1] == "verify")
@@ -398,14 +486,19 @@ namespace MangaDownloader.Web
 
             if (parts.Length == 2 && parts[1] == "import")
             {
-                var file = Str("path") ?? throw new ApiException(400, "Missing path.");
+                // Either a path on this computer (typed in) or the file's contents (dropped or picked in the page).
+                var file = Str("path");
+                var text = Str("text");
 
-                if (!File.Exists(file))
+                if (text == null && string.IsNullOrWhiteSpace(file))
+                    throw new ApiException(400, "Missing path.");
+
+                if (text == null && !File.Exists(file))
                     throw new ApiException(404, "File not found on this computer: " + file);
 
                 try
                 {
-                    var result = QueueMangaImporter.Import(library, file);
+                    var result = text != null ? QueueMangaImporter.ImportText(library, text) : QueueMangaImporter.Import(library, file);
                     runner.Wake();
                     return new { result.Added, result.AlreadyPresent, skipped = result.Skipped, result.Version };
                 }
@@ -416,6 +509,40 @@ namespace MangaDownloader.Web
             }
 
             throw new ApiException(404, "not found");
+        }
+
+        /// <summary>The full path of a folder downloads can be written to, created if needed.</summary>
+        private static string UsableFolder(string text)
+        {
+            var folder = (text ?? "").Trim();
+
+            if (folder.Length == 0)
+                throw new ApiException(400, "Enter a folder.");
+
+            try
+            {
+                folder = Path.GetFullPath(folder);
+                Directory.CreateDirectory(folder);
+                return folder;
+            }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException || e is NotSupportedException)
+            {
+                throw new ApiException(422, "Cannot use that folder: " + e.Message);
+            }
+        }
+
+        /// <summary>Saves the fields changed in the page to settings.json, keeping whatever else is in it.</summary>
+        private void Persist(Action<AppSettings> change)
+        {
+            if (settingsFile == null)
+                return;
+
+            lock (settingsGate)
+            {
+                var settings = AppSettings.Load(settingsFile);
+                change(settings);
+                settings.Save(settingsFile);
+            }
         }
 
         // ---- manual Cloudflare check -------------------------------------------------------------------------------

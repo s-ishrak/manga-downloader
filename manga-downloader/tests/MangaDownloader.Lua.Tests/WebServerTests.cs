@@ -40,7 +40,7 @@ namespace MangaDownloader.Lua.Tests
             var repository = ModuleRepository.LoadDirectory(modules, fixture);
             download = new DownloadOptions { OutputDirectory = Path.Combine(root, "out"), SaveFormat = SaveFormat.Folder };
             runner = new QueueRunner(db, () => new DownloadEngine(repository, fixture, download));
-            server = new LocalWebServer(db, runner, new SeriesTracker(db, repository), port, token: "test-token", download: download);
+            server = new LocalWebServer(db, runner, new SeriesTracker(db, repository), port, token: "test-token", download: download, settingsFile: SettingsFile);
             server.Start();
         }
 
@@ -200,6 +200,81 @@ namespace MangaDownloader.Lua.Tests
             Assert.Equal(3, runner.MaxConcurrent);
         }
 
+        private string SettingsFile => Path.Combine(root, "config", "settings.json");
+
+        [Fact]
+        public void SettingsAreAppliedAndOnlyTheChangedOnesAreSaved()
+        {
+            var before = Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("settings");
+            Assert.Equal("folder", before.GetProperty("format").GetString());
+            Assert.Equal(6, before.GetProperty("parallel").GetInt32());
+            Assert.False(File.Exists(SettingsFile));
+
+            Ok(Request(HttpMethod.Post, "/api/settings", "{\"format\":\"PDF\",\"parallel\":3,\"retry\":0,\"delayMilliseconds\":250,\"keepImages\":true,\"overwrite\":true,\"checkEveryMinutes\":30}"));
+
+            Assert.Equal(SaveFormat.Pdf, download.SaveFormat);
+            Assert.Equal(3, download.MaxParallel);
+            Assert.Equal(0, download.RetryFailed);
+            Assert.Equal(250, download.PageDelayMilliseconds);
+            Assert.True(download.KeepImages);
+            Assert.False(download.SkipExisting);
+            Assert.Equal(30, server.CheckEveryMinutes);
+
+            var after = Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("settings");
+            Assert.Equal("pdf", after.GetProperty("format").GetString());
+            Assert.True(after.GetProperty("overwrite").GetBoolean());
+
+            var saved = AppSettings.Load(SettingsFile);
+            Assert.Equal("pdf", saved.Format);
+            Assert.Equal(3, saved.Parallel);
+            Assert.Equal(30, saved.CheckEveryMinutes);
+            Assert.Null(saved.OutputDirectory); // not changed, so not saved
+            Assert.Null(saved.Concurrent);
+
+            // The concurrency picker saves too, and keeps the rest of the file.
+            Ok(Request(HttpMethod.Post, "/api/runner/concurrency", "{\"count\":2}"));
+            Assert.Equal(2, AppSettings.Load(SettingsFile).Concurrent);
+            Assert.Equal("pdf", AppSettings.Load(SettingsFile).Format);
+        }
+
+        [Fact]
+        public void BadSettingsChangeNothing()
+        {
+            foreach (var bad in new[] { "{\"format\":\"epub\"}", "{\"parallel\":0}", "{\"parallel\":999}", "{\"retry\":\"2\"}", "{\"delayMilliseconds\":-1}", "{\"keepImages\":\"yes\"}", "{\"format\":\"pdf\",\"checkEveryMinutes\":1.5}" })
+                Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/settings", bad)).Status);
+
+            Assert.Equal(SaveFormat.Folder, download.SaveFormat);
+            Assert.Equal(0, server.CheckEveryMinutes);
+            Assert.False(File.Exists(SettingsFile));
+        }
+
+        [Fact]
+        public void AppSettingsRoundTripAndRejectBrokenFiles()
+        {
+            new AppSettings { Format = "zip", KeepImages = false, CheckEveryMinutes = 60 }.Save(SettingsFile);
+            var loaded = AppSettings.Load(SettingsFile);
+            Assert.Equal("zip", loaded.Format);
+            Assert.False(loaded.KeepImages);
+            Assert.Null(loaded.Parallel);
+            Assert.DoesNotContain("parallel", File.ReadAllText(SettingsFile));
+
+            Assert.Null(AppSettings.Load(Path.Combine(root, "missing.json")).Format);
+
+            File.WriteAllText(SettingsFile, "{ not json");
+            Assert.Throws<FormatException>(() => AppSettings.Load(SettingsFile));
+        }
+
+        [Fact]
+        public void ClonedOptionsDoNotFollowLaterChanges()
+        {
+            var snapshot = download.Clone();
+            download.SaveFormat = SaveFormat.Pdf;
+            download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse("webp=jpg"));
+
+            Assert.Equal(SaveFormat.Folder, snapshot.SaveFormat);
+            Assert.Empty(snapshot.ConversionRules);
+        }
+
         [Fact]
         public void PauseAndResumeReachTheRunner()
         {
@@ -250,6 +325,34 @@ namespace MangaDownloader.Lua.Tests
             var notAQueue = Path.Combine(root, "other.txt");
             File.WriteAllText(notAQueue, "hello");
             Assert.Equal((HttpStatusCode)422, Call(Request(HttpMethod.Post, "/api/import", JsonSerializer.Serialize(new { path = notAQueue }))).Status);
+            Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/import", "{}")).Status);
+        }
+
+        [Fact]
+        public void ImportsTheContentsOfAQueueManFileSentByThePage()
+        {
+            var text = "[HDoujin Download List, V2.1]\r\nFirst\thttps://t.test/g/1\t0/5\tQueued\r\nSecond\thttps://t.test/g/2\t0/5\tQueued\r\n";
+
+            var result = Ok(Request(HttpMethod.Post, "/api/import", JsonSerializer.Serialize(new { text })));
+            Assert.Equal(2, result.GetProperty("added").GetInt32());
+
+            var again = Ok(Request(HttpMethod.Post, "/api/import", JsonSerializer.Serialize(new { text })));
+            Assert.Equal(0, again.GetProperty("added").GetInt32());
+            Assert.Equal(2, again.GetProperty("alreadyPresent").GetInt32());
+
+            Assert.Equal((HttpStatusCode)422, Call(Request(HttpMethod.Post, "/api/import", "{\"text\":\"hello\"}")).Status);
+        }
+
+        [Fact]
+        public void TheStateCarriesChapterProgress()
+        {
+            runner.Start();
+            Ok(Request(HttpMethod.Post, "/api/queue", "{\"urls\":\"https://t.test/s\"}"));
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => db.ListQueue().Single().Status == QueueStatus.Completed, 8000));
+
+            var item = Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("queue")[0];
+            Assert.Equal(2, item.GetProperty("chaptersTotal").GetInt32());
+            Assert.Equal(2, item.GetProperty("chaptersDone").GetInt32());
         }
 
         [Fact]

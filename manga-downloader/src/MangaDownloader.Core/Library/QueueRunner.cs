@@ -264,7 +264,7 @@ namespace MangaDownloader.Core.Library
             }
 
             library.SetStatus(item.Id, QueueStatus.Downloading);
-            library.SetProgress(item.Id, 0, 0, null, 0);
+            library.SetProgress(item.Id, 0, 0, null, 0, 0, 0);
             Changed?.Invoke();
             return slot;
         }
@@ -279,7 +279,7 @@ namespace MangaDownloader.Core.Library
                 try
                 {
                     var engine = engineFactory();
-                    var sums = new Dictionary<DownloadReport, (int Done, int Total)>();
+                    var sums = new Dictionary<DownloadReport, (int Done, int Total, int ChaptersDone, int ChaptersTotal)>();
                     var fraction = 0.0;
                     var throttle = Stopwatch.StartNew();
 
@@ -287,14 +287,15 @@ namespace MangaDownloader.Core.Library
                     {
                         lock (sums)
                         {
-                            sums[p.Report] = (p.PagesDone, p.PagesTotal);
+                            sums[p.Report] = (p.PagesDone, p.PagesTotal, p.Report.ChaptersDone, p.Report.ChaptersTotal);
                             fraction = p.Fraction;
 
                             if (throttle.ElapsedMilliseconds < 300)
                                 return;
 
                             throttle.Restart();
-                            library.SetProgress(item.Id, sums.Values.Sum(v => v.Done), sums.Values.Sum(v => v.Total), p.Report.Title, (int)Math.Round(fraction * 1000));
+                            library.SetProgress(item.Id, sums.Values.Sum(v => v.Done), sums.Values.Sum(v => v.Total), p.Report.Title, (int)Math.Round(fraction * 1000),
+                                sums.Values.Sum(v => v.ChaptersDone), sums.Values.Sum(v => v.ChaptersTotal));
                         }
 
                         Changed?.Invoke();
@@ -343,7 +344,8 @@ namespace MangaDownloader.Core.Library
             var done = reports.Sum(r => r.PagesDownloaded + r.PagesSkipped);
             var total = reports.Sum(r => r.PagesTotal);
 
-            library.SetProgress(item.Id, done, total, title, status == QueueStatus.Completed ? 1000 : (int?)null);
+            library.SetProgress(item.Id, done, total, title, status == QueueStatus.Completed ? 1000 : (int?)null,
+                reports.Sum(r => r.ChaptersDone), reports.Sum(r => r.ChaptersTotal));
             library.SetStatus(item.Id, status, error, outputs);
             library.AddHistory(item.Url, title ?? item.Url, status, total, outputs, error);
 
