@@ -450,7 +450,7 @@ namespace MangaDownloader.Cli
                     Console.WriteLine("Press Ctrl+C to stop; downloads in progress resume next time.");
 
                     if (options.Has("open"))
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(server.Url) { UseShellExecute = true });
+                        OpenWebUi(server.Url, options.ConfigDirectory);
 
                     // The interval can be changed in the web UI, so look at it again every few seconds.
                     var lastCheck = DateTime.UtcNow;
@@ -471,6 +471,23 @@ namespace MangaDownloader.Cli
                     return 0;
                 }
             }
+        }
+
+        private static void OpenWebUi(string url, string configDirectory)
+        {
+            var helper = BrowserWindowSolver.DefaultHelperPath;
+
+            if (BrowserWindowSolver.IsAvailable(helper))
+            {
+                var info = new System.Diagnostics.ProcessStartInfo(helper) { UseShellExecute = false };
+                foreach (var argument in new[] { "--standalone", "--url", url, "--profile", Path.Combine(configDirectory, "webview-ui-profile") })
+                    info.ArgumentList.Add(argument);
+                System.Diagnostics.Process.Start(info);
+                return;
+            }
+
+            Console.Error.WriteLine("Standalone window helper not found; opening the Web UI in the default browser instead.");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
         }
 
         // ---- scraping / downloading ------------------------------------------------------------------------------

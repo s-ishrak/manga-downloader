@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net5.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>Manga Downloader</AssemblyName>
+    <RootNamespace>MangaDownloader.Launcher</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="launcher.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

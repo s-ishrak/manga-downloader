@@ -245,7 +245,8 @@ namespace MangaDownloader.Lua.Tests
             using (var zip = ZipFile.OpenRead(cbz))
             {
                 Assert.Equal(
-                    new[] { "1 - One/One_001.jpg", "2 - Two/Two_001.jpg", "2 - Two/Two_002.jpg", "ComicInfo.xml" },
+                    // Page names use series metadata; chapter titles name the enclosing folders.
+                    new[] { "1 - One/Series_001.jpg", "2 - Two/Series_001.jpg", "2 - Two/Series_002.jpg", "ComicInfo.xml" },
                     zip.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
                 using (var stream = zip.GetEntry("ComicInfo.xml").Open())

@@ -27,7 +27,7 @@ namespace MangaDownloader.BrowserWindow
 
             if (options == null)
             {
-                Console.Error.WriteLine("usage: manga-downloader-browser --url URL --profile DIR --out FILE [--timeout SECONDS] [--hidden]");
+                Console.Error.WriteLine("usage: manga-downloader-browser --url URL --profile DIR (--out FILE [--timeout SECONDS] [--hidden] | --standalone)");
                 return 4;
             }
 
@@ -51,6 +51,7 @@ namespace MangaDownloader.BrowserWindow
         public string Out;
         public int TimeoutSeconds = 300;
         public bool Hidden;
+        public bool Standalone;
 
         public static Options Parse(string[] args)
         {
@@ -65,10 +66,12 @@ namespace MangaDownloader.BrowserWindow
                     case "--out" when i + 1 < args.Length: o.Out = args[++i]; break;
                     case "--timeout" when i + 1 < args.Length: o.TimeoutSeconds = int.Parse(args[++i]); break;
                     case "--hidden": o.Hidden = true; break;
+                    case "--standalone": o.Standalone = true; break;
                 }
             }
 
-            return o.Url != null && o.Profile != null && o.Out != null && Uri.TryCreate(o.Url, UriKind.Absolute, out var u) && (u.Scheme == "http" || u.Scheme == "https") ? o : null;
+            var validUrl = Uri.TryCreate(o.Url, UriKind.Absolute, out var u) && (u.Scheme == "http" || u.Scheme == "https");
+            return validUrl && o.Profile != null && (o.Standalone || o.Out != null) ? o : null;
         }
     }
 
@@ -96,17 +99,21 @@ namespace MangaDownloader.BrowserWindow
             target = new Uri(options.Url);
             deadline = DateTime.UtcNow.AddSeconds(options.TimeoutSeconds);
 
-            Text = "Cloudflare check - " + target.Host;
+            Text = options.Standalone ? "Manga Downloader" : "Cloudflare check - " + target.Host;
             Width = 1000;
             Height = 760;
             StartPosition = FormStartPosition.CenterScreen;
 
-            var bar = new Panel { Dock = DockStyle.Top, Height = 38 };
-            hint.Text = "Complete the check below. This window closes by itself when you are through (or click the button).";
-            bar.Controls.Add(hint);
-            bar.Controls.Add(done);
             Controls.Add(web);
-            Controls.Add(bar);
+
+            if (!options.Standalone)
+            {
+                var bar = new Panel { Dock = DockStyle.Top, Height = 38 };
+                hint.Text = "Complete the check below. This window closes by itself when you are through (or click the button).";
+                bar.Controls.Add(hint);
+                bar.Controls.Add(done);
+                Controls.Add(bar);
+            }
 
             if (options.Hidden)
             {
@@ -131,7 +138,9 @@ namespace MangaDownloader.BrowserWindow
                 var env = await CoreWebView2Environment.CreateAsync(null, options.Profile);
                 await web.EnsureCoreWebView2Async(env);
                 web.CoreWebView2.Navigate(target.AbsoluteUri);
-                poll.Start();
+
+                if (!options.Standalone)
+                    poll.Start();
             }
             catch (Exception e) when (e is WebView2RuntimeNotFoundException || e is System.Runtime.InteropServices.COMException || e is InvalidOperationException)
             {

@@ -66,9 +66,11 @@ namespace MangaDownloader.Core.Output
             string Get(params string[] keys) => keys.Select(k => info.TryGetValue(k, out var v) ? v : null).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
             var settings = new XmlWriterSettings { Indent = true, Encoding = new UTF8Encoding(false), OmitXmlDeclaration = false };
-            var sb = new StringBuilder();
+            // A StringBuilder-backed XmlWriter declares UTF-16 even when Encoding is UTF-8.
+            // Serialize to bytes so the declaration matches the UTF-8 ZIP entry.
+            using var buffer = new MemoryStream();
 
-            using (var w = XmlWriter.Create(sb, settings))
+            using (var w = XmlWriter.Create(buffer, settings))
             {
                 w.WriteStartElement("ComicInfo");
 
@@ -110,7 +112,7 @@ namespace MangaDownloader.Core.Output
                 w.WriteEndElement();
             }
 
-            return sb.ToString();
+            return Encoding.UTF8.GetString(buffer.ToArray());
         }
     }
 }

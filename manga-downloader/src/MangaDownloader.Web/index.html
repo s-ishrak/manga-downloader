@@ -4,22 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>manga-downloader</title>
+<script>
+  // Apply the saved theme before the page paints to avoid a light/dark flash.
+  (() => {
+    const theme = localStorage.getItem('theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  })();
+</script>
 <style>
   :root {
+    color-scheme: light;
     --bg: #f6f7f9; --panel: #ffffff; --text: #1c2026; --muted: #667085; --line: #e3e6eb;
     --accent: #3b5bdb; --accent-text: #ffffff; --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --track: #e9ecf1;
     --shadow: 0 1px 2px rgba(16,24,40,.06);
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme]) {
+      color-scheme: dark;
       --bg: #14161a; --panel: #1c1f25; --text: #e8eaee; --muted: #9aa3b2; --line: #2b303a;
       --accent: #748ffc; --accent-text: #11131a; --ok: #69db7c; --warn: #fcc419; --bad: #ff8787; --track: #2b303a;
       --shadow: none;
     }
   }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14161a; --panel: #1c1f25; --text: #e8eaee; --muted: #9aa3b2; --line: #2b303a;
+    --accent: #748ffc; --accent-text: #11131a; --ok: #69db7c; --warn: #fcc419; --bad: #ff8787; --track: #2b303a;
+    --shadow: none;
+  }
   * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+  .wrap { width: 100%; max-width: 1040px; height: 100dvh; min-height: 0; margin: 0 auto; padding: 20px 16px 16px; display: flex; flex-direction: column; }
   header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
   h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
   .spacer { flex: 1; }
@@ -41,11 +57,17 @@
   button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
   button.small { padding: 3px 9px; font-size: 13px; }
   button.danger:hover { border-color: var(--bad); color: var(--bad); }
-  nav { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+  nav { display: flex; flex: none; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
   nav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
   nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   nav .count { color: var(--muted); font-weight: 400; margin-left: 4px; }
-  .list { display: grid; }
+  .theme { display: flex; align-items: center; gap: 6px; margin-left: auto; padding-left: 12px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .theme select { padding: 3px 7px; }
+  .list { display: grid; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  [id^="panel-"] { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  [id^="panel-"]:not(#panel-settings) { display: flex; flex-direction: column; }
+  [id^="panel-"]:not(#panel-settings) > .list { flex: 1 1 auto; }
+  #panel-settings { overflow-y: auto; overscroll-behavior: contain; }
   .item { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: center; }
   .item:first-child { border-top: none; }
   .title { font-weight: 600; overflow-wrap: anywhere; }
@@ -71,6 +93,7 @@
   button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
   body.dropping .wrap { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: 12px; }
   @media (max-width: 560px) {
+    .wrap { padding: 12px 10px 10px; }
     .item { grid-template-columns: 1fr; } .actions { justify-content: flex-start; }
     .form { grid-template-columns: 1fr; gap: 4px; } .form > span:empty { display: none; } .form > label + * { margin-bottom: 8px; }
   }
@@ -116,6 +139,13 @@
     <button data-tab="tracked">Tracked series<span class="count" id="nTracked"></span></button>
     <button data-tab="sites">Supported sites</button>
     <button data-tab="settings">Settings</button>
+    <label class="theme" for="theme">Theme
+      <select id="theme" aria-label="Color theme">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
   </nav>
 
   <section class="card" id="panel-queue"><div class="list" id="queue"></div>
@@ -173,6 +203,19 @@
 <script>
 const $ = id => document.getElementById(id);
 let state = null, tab = 'queue';
+
+function setTheme(theme) {
+  if (theme === 'light' || theme === 'dark') {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('theme', theme);
+  } else {
+    delete document.documentElement.dataset.theme;
+    localStorage.removeItem('theme');
+  }
+}
+
+$('theme').value = localStorage.getItem('theme') || 'system';
+$('theme').addEventListener('change', e => setTheme(e.target.value));
 
 function el(tag, attrs, ...kids) {
   const e = document.createElement(tag);

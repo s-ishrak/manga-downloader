@@ -1,7 +1,6 @@
-# manga-downloader
+# Manga Downloader — command reference
 
-A clone of HDoujin Downloader's engine: it runs the community Lua scraper modules (`modules/lua/*.lua`) unchanged.
-See `../PLAN.md` for the reverse-engineering notes and the phased plan. Status: **Phases 0-5 done** (module host, download engine, CBZ/ZIP/PDF output, image conversion and unscrambling, cookies/login/Cloudflare/proxy/module sync, persistent queue + history, chapter tracker, local web UI).
+For installation, features, and a quick start, see the [project README](../README.md). This reference describes advanced CLI options and implementation limitations.
 
 ## Layout
 
@@ -37,11 +36,11 @@ dotnet test
 Formatting strings: `%TOKEN%` (case-insensitive), `%A||B%` fallback, `%ARTIST(2)%` list limit, `%PAGE(000)%` zero padding,
 `%IF(a=b,x,y)%` (nestable, also `!=`), `%REGEX(v,pat,grp)%`, `%REPLACE(v,a,b)%`, `%UPPER()%`, `%LOWER()%`, `%TRIM()%`.
 
-## One-click start (Windows)
+## Windows launcher
 
-Double-click **`Start manga-downloader.cmd`** (or the *manga-downloader* shortcut on the Desktop). The first run builds the tool into `dist\` (about a minute, needs the .NET SDK), then it starts the web UI and opens it in your default browser. Closing the console window stops it; downloads in progress resume next time. Downloads go to `downloads\` next to the launcher.
+Install the Windows release, then open **Manga Downloader** from the Start menu. The launcher downloads modules on first use and runs the local interface without a terminal. Close the window to keep downloading; use the tray menu **Exit** to stop. Edit `launcher.json` beside the executable to change the module folder, port, or manual browser challenges. An empty module path uses `%APPDATA%\manga-downloader\modules\lua`.
 
-Edit the `MODULES`, `OUTPUT` and `PORT` lines at the top of the `.cmd` to change where modules are read from, where files go, or which port is used. Delete `dist\` to force a rebuild after changing the source. The browser opens the address that contains the access token (see the web UI section), so there is nothing to type.
+For source builds, run `Start manga-downloader.cmd` from this directory with the .NET 5 SDK installed. It rebuilds changed source files and launches `dist\Manga Downloader.exe`.
 
 ## Queue, history, tracking and the web UI
 
@@ -99,4 +98,4 @@ manga-downloader modules sync --modules ./modules/lua                           
 - `voyce_me.lua` has a syntax error upstream (flagged `broken` in its own `metadata.json`).
 - Not implemented yet: ePUB/RAR/7z/CBW output, a desktop (Avalonia) UI, per-site naming formats, a scheduler beyond `serve --check-every`; `Captcha`, `LZString`; WebDriver/built-in browser fallback and captcha solving; multiple repositories with per-site priority (only the first remote in `repositories.json` is synced).
 - Guessed semantics (verify against the real app): `regex()` returns `""` on no match and defaults to the first capture group, `PostData` is cleared after a POST, `GetDomain` takes the last two labels, plain `%PAGE%` pads to at least 3 digits, `%TITLE%` in chapter names is the chapter title (series title if none), a failed page keeps the rest on disk and blocks packing, `GetLanguageName/Id` tables.
-- Targets .NET 5 because that is the SDK installed here; change `TargetFramework` in `Directory.Build.props` to `net8.0` once available.
+- Targets .NET 5 (out of support). A supported-runtime migration is pending; Windows releases bundle the current runtime.
