@@ -276,15 +276,20 @@ namespace MangaDownloader.Core.Download
                 return;
 
             var entries = new List<KeyValuePair<string, string>>();
+            var bookmarks = new List<KeyValuePair<int, string>>();
 
             foreach (var dir in chapterDirs)
+            {
+                bookmarks.Add(new KeyValuePair<int, string>(entries.Count, Path.GetFileName(dir)));
+
                 foreach (var file in ArchiveFiles.List(dir))
                     entries.Add(new KeyValuePair<string, string>(file, Path.GetFileName(dir) + "/" + Path.GetFileName(file)));
+            }
 
             if (options.SaveFormat == SaveFormat.Pdf)
                 PdfWriter.Create(entries.Select(e => e.Key).ToList(), combinedPath, info.Fields);
             else
-                CbzWriter.Create(entries, combinedPath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null);
+                CbzWriter.Create(entries, combinedPath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null, bookmarks);
 
             log("wrote " + combinedPath);
             report.Outputs.Add(combinedPath);
@@ -403,7 +408,7 @@ namespace MangaDownloader.Core.Download
             if (options.SaveFormat == SaveFormat.Pdf)
                 PdfWriter.Create(ArchiveFiles.List(workDir), archivePath, info.Fields);
             else
-                CbzWriter.Create(workDir, archivePath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null, pages.Count);
+                CbzWriter.Create(workDir, archivePath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null);
 
             log("wrote " + archivePath);
             report.Outputs.Add(archivePath);

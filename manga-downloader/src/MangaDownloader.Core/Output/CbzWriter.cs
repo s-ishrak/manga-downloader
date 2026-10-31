@@ -14,41 +14,54 @@ namespace MangaDownloader.Core.Output
         /// Zips the image files of <paramref name="sourceFolder"/> (in natural name order, stored uncompressed since images
         /// are already compressed) plus an optional ComicInfo.xml. Written to a temp file and moved into place, so a crash never leaves a half-written archive.
         /// </summary>
-        public static void Create(string sourceFolder, string archivePath, IDictionary<string, string> info, int pageCount)
+        public static void Create(string sourceFolder, string archivePath, IDictionary<string, string> info)
         {
             Create(ArchiveFiles.List(sourceFolder).Select(f => new KeyValuePair<string, string>(f, Path.GetFileName(f))).ToList(), archivePath, info);
         }
 
         /// <summary>Same, from explicit (file, entry name) pairs in archive order, so several chapter folders can share one archive.</summary>
-        public static void Create(IList<KeyValuePair<string, string>> files, string archivePath, IDictionary<string, string> info)
+        public static void Create(IList<KeyValuePair<string, string>> files, string archivePath, IDictionary<string, string> info,
+            IList<KeyValuePair<int, string>> chapters = null)
         {
             var temp = archivePath + ".tmp";
 
-            Directory.CreateDirectory(Path.GetDirectoryName(archivePath));
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(archivePath)));
 
-            using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
+            if (File.Exists(temp))
+                File.Delete(temp);
+
+            try
             {
-                foreach (var file in files)
-                    zip.CreateEntryFromFile(file.Key, file.Value, CompressionLevel.NoCompression);
-
-                if (info != null)
+                using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
                 {
-                    var entry = zip.CreateEntry("ComicInfo.xml", CompressionLevel.Optimal);
+                    foreach (var file in files)
+                        zip.CreateEntryFromFile(file.Key, file.Value, CompressionLevel.NoCompression);
 
-                    using (var stream = entry.Open())
-                    using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
-                        writer.Write(ComicInfo(info, files.Count));
+                    if (info != null)
+                    {
+                        var entry = zip.CreateEntry("ComicInfo.xml", CompressionLevel.Optimal);
+
+                        using (var stream = entry.Open())
+                        using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                            writer.Write(ComicInfo(info, files.Count, chapters));
+                    }
                 }
+
+                if (File.Exists(archivePath))
+                    File.Delete(archivePath);
+
+                File.Move(temp, archivePath);
             }
-
-            if (File.Exists(archivePath))
-                File.Delete(archivePath);
-
-            File.Move(temp, archivePath);
+            finally
+            {
+                if (File.Exists(temp))
+                    File.Delete(temp);
+            }
         }
 
         /// <summary>ComicInfo.xml (Anansi schema) from the module's info fields.</summary>
-        public static string ComicInfo(IDictionary<string, string> info, int pageCount)
+        /// <param name="chapters">(first page index, name) per chapter; written as bookmarks, which readers such as Komga show as a table of contents.</param>
+        public static string ComicInfo(IDictionary<string, string> info, int pageCount, IList<KeyValuePair<int, string>> chapters = null)
         {
             string Get(params string[] keys) => keys.Select(k => info.TryGetValue(k, out var v) ? v : null).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
@@ -78,6 +91,22 @@ namespace MangaDownloader.Core.Output
                 Element("Web", Get("Url"));
                 Element("PageCount", pageCount.ToString());
                 w.WriteElementString("Manga", "Yes");
+
+                if (chapters != null && chapters.Count > 0)
+                {
+                    w.WriteStartElement("Pages");
+
+                    foreach (var chapter in chapters)
+                    {
+                        w.WriteStartElement("Page");
+                        w.WriteAttributeString("Image", chapter.Key.ToString());
+                        w.WriteAttributeString("Bookmark", chapter.Value);
+                        w.WriteEndElement();
+                    }
+
+                    w.WriteEndElement();
+                }
+
                 w.WriteEndElement();
             }
 

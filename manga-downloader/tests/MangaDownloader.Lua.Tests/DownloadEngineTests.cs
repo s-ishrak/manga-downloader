@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Xml.Linq;
 using MangaDownloader.Core;
 using MangaDownloader.Core.Download;
 using Xunit;
@@ -221,6 +222,55 @@ namespace MangaDownloader.Lua.Tests
             Assert.Equal(
                 new[] { "1 - One.cbz", "2 - Two.cbz" },
                 Directory.GetFiles(Path.Combine(root, "out", "Series")).Select(Path.GetFileName).OrderBy(n => n).ToArray());
+        }
+
+        [Fact]
+        public void CombinedCbzIncludesChapterBookmarksAtTheirFirstPages()
+        {
+            http.Pages["https://t.test/s"] = "<html></html>";
+            http.Pages["https://t.test/c/1"] = "<html></html>";
+            http.Pages["https://t.test/c/2"] = "<html></html>";
+            Page("https://img.test/a.jpg", 1);
+            Page("https://img.test/b.jpg", 2);
+            Page("https://img.test/c.jpg", 3);
+
+            var lua = "function GetInfo() info.Title = 'Series' end\n" +
+                      "function GetChapters() chapters.Add('/c/1', 'One') chapters.Add('/c/2', 'Two') end\n" +
+                      "function GetPages() if url:contains('/c/1') then pages.Add('https://img.test/a.jpg') else pages.Add('https://img.test/b.jpg') pages.Add('https://img.test/c.jpg') end end\n";
+            var report = Engine(lua, new DownloadOptions { CombineChapters = true }).Download("https://t.test/s").Single();
+
+            Assert.True(report.Success, string.Join("; ", report.Errors));
+            var cbz = Path.Combine(root, "out", "Series.cbz");
+
+            using (var zip = ZipFile.OpenRead(cbz))
+            {
+                Assert.Equal(
+                    new[] { "1 - One/One_001.jpg", "2 - Two/Two_001.jpg", "2 - Two/Two_002.jpg", "ComicInfo.xml" },
+                    zip.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+
+                using (var stream = zip.GetEntry("ComicInfo.xml").Open())
+                {
+                    var pages = XDocument.Load(stream).Root.Element("Pages").Elements("Page").ToList();
+                    Assert.Equal(new[] { "0", "1" }, pages.Select(p => (string)p.Attribute("Image")).ToArray());
+                    Assert.Equal(new[] { "1 - One", "2 - Two" }, pages.Select(p => (string)p.Attribute("Bookmark")).ToArray());
+                }
+            }
+        }
+
+        [Fact]
+        public void StaleCbzTemporaryFileDoesNotBlockARetry()
+        {
+            ThreePages();
+            var output = Path.Combine(root, "out");
+            Directory.CreateDirectory(output);
+            var temp = Path.Combine(output, "My Doujin.cbz.tmp");
+            File.WriteAllText(temp, "left by an interrupted run");
+
+            var report = Engine(ThreePageGallery, new DownloadOptions()).Download("https://t.test/g/1").Single();
+
+            Assert.True(report.Success, string.Join("; ", report.Errors));
+            Assert.True(File.Exists(Path.Combine(output, "My Doujin.cbz")));
+            Assert.False(File.Exists(temp));
         }
 
         [Fact]
