@@ -273,7 +273,7 @@ This snapshot is generated from the community modules available on 31 October 20
 - **Zero Scans** — zscans.com
 
 <details>
-<summary>Adult / NSFW sites (102)</summary>
+<summary>Adult / NSFW sites (103)</summary>
 
 - **177漫畫** — 177pic.info
 - **18Kami** — 18kami.com
@@ -377,6 +377,8 @@ This snapshot is generated from the community modules available on 31 October 20
 - **XXX 3D Comix** — 3dcomixsex.com, porncomix.pro, xxx3dcomix.com
 - **XYZ Comics** — xyzcomics.com
 - **Yabai!** — yabai.si
+
+- **Tema Fotos** — comicsmanics.com, freeadultcomix.com
 
 </details>
 
