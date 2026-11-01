@@ -284,7 +284,7 @@ namespace MangaDownloader.Web
             },
             verification = Pending(),
             verificationSteps = MangaDownloader.Net.VerificationText.Steps,
-            queue = library.ListQueue(),
+            queue = library.ListQueue().Where(q => q.Status != QueueStatus.Completed).Reverse().ToList(),
             history = library.ListHistory(100),
             tracked = library.ListTracked().Select(t => new
             {

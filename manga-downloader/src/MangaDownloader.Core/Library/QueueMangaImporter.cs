@@ -161,6 +161,8 @@ namespace MangaDownloader.Core.Library
                 }
 
                 library.Enqueue(entry.Url, entry.Title, "import", entry.Status, entry.PagesDone, entry.PagesTotal);
+                if (entry.Status == QueueStatus.Completed)
+                    library.AddHistory(entry.Url, entry.Title, entry.Status, entry.PagesDone, null, null);
                 result.Added++;
             }
 

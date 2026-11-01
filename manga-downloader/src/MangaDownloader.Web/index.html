@@ -150,7 +150,6 @@
 
   <section class="card" id="panel-queue"><div class="list" id="queue"></div>
     <div class="tools">
-      <button class="small" id="clearDone">Clear completed</button>
       <span class="spacer"></span>
       <input type="text" id="importPath" size="34" placeholder="Path to queue.manga" aria-label="Path to a HDoujin queue.manga file">
       <button class="small" id="importBtn">Import</button>
@@ -453,7 +452,6 @@ $('pauseBtn').onclick = () => act('/api/runner/' + (state && state.runner.paused
 $('concurrency').onchange = e => act('/api/runner/concurrency', { count: Number(e.target.value) });
 $('verifySend').onclick = () => act('/api/verify', { text: $('verifyText').value }, 'Thanks, continuing…');
 $('verifyCancel').onclick = () => act('/api/verify/cancel', {}, 'Check cancelled');
-$('clearDone').onclick = () => act('/api/queue/clear-completed');
 $('clearHistory').onclick = () => act('/api/history/clear');
 $('checkAll').onclick = () => act('/api/track/check-all', {}, 'Checking all…');
 function imported(d, name) { if (d) toast((name ? name + ': imported ' : 'Imported ') + d.added + ' (' + d.alreadyPresent + ' already queued)'); }

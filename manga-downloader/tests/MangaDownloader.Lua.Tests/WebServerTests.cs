@@ -344,15 +344,15 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
-        public void TheStateCarriesChapterProgress()
+        public void CompletedDownloadsRetainChapterProgress()
         {
             runner.Start();
             Ok(Request(HttpMethod.Post, "/api/queue", "{\"urls\":\"https://t.test/s\"}"));
             Assert.True(System.Threading.SpinWait.SpinUntil(() => db.ListQueue().Single().Status == QueueStatus.Completed, 8000));
 
-            var item = Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("queue")[0];
-            Assert.Equal(2, item.GetProperty("chaptersTotal").GetInt32());
-            Assert.Equal(2, item.GetProperty("chaptersDone").GetInt32());
+            var item = db.ListQueue().Single();
+            Assert.Equal(2, item.ChaptersTotal);
+            Assert.Equal(2, item.ChaptersDone);
         }
 
         [Fact]
@@ -402,7 +402,37 @@ namespace MangaDownloader.Lua.Tests
 
             Assert.True(System.Threading.SpinWait.SpinUntil(() => db.ListQueue().Single().Status == QueueStatus.Completed, 8000));
             var state = Ok(Request(HttpMethod.Get, "/api/state"));
+            Assert.Equal(0, state.GetProperty("queue").GetArrayLength());
             Assert.Equal(1, state.GetProperty("history").GetArrayLength());
+        }
+
+        [Fact]
+        public void StateShowsNewestUnfinishedDownloadsFirst()
+        {
+            var first = db.Enqueue("https://t.test/g/1");
+            db.Enqueue("https://t.test/g/2");
+            var third = db.Enqueue("https://t.test/g/3");
+            db.SetStatus(first.Id, QueueStatus.Completed);
+            db.AddHistory(first.Url, first.Title, QueueStatus.Completed, 0, null, null);
+
+            var state = Ok(Request(HttpMethod.Get, "/api/state"));
+            var queue = state.GetProperty("queue");
+            Assert.Equal(2, queue.GetArrayLength());
+            Assert.Equal(third.Id, queue[0].GetProperty("id").GetInt64());
+            Assert.Equal(first.Url, state.GetProperty("history")[0].GetProperty("url").GetString());
+        }
+
+        [Fact]
+        public void ImportedCompletedDownloadsAppearInHistory()
+        {
+            var text = "[HDoujin Download List, V2.1]\r\nFinished\thttps://t.test/g/1\t5/5\tCompleted\r\n";
+            Ok(Request(HttpMethod.Post, "/api/import", JsonSerializer.Serialize(new { text })));
+            Ok(Request(HttpMethod.Post, "/api/import", JsonSerializer.Serialize(new { text })));
+
+            var state = Ok(Request(HttpMethod.Get, "/api/state"));
+            Assert.Equal(0, state.GetProperty("queue").GetArrayLength());
+            Assert.Equal(1, state.GetProperty("history").GetArrayLength());
+            Assert.Equal("Completed", state.GetProperty("history")[0].GetProperty("status").GetString());
         }
     }
 }
