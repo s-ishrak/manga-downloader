@@ -44,6 +44,11 @@ namespace MangaDownloader.Lua.Runtime
 
         public static LuaModule Load(string path, IHttpBackend http = null, CookieJar jar = null)
         {
+            return LoadSource(path, File.ReadAllText(path, Encoding.UTF8), http, jar);
+        }
+
+        public static LuaModule LoadSource(string path, string source, IHttpBackend http = null, CookieJar jar = null)
+        {
             EnsureTypesRegistered();
 
             var context = new HostContext(http ?? new NoNetworkBackend(), jar);
@@ -51,7 +56,7 @@ namespace MangaDownloader.Lua.Runtime
 
             try
             {
-                script.DoString(File.ReadAllText(path, Encoding.UTF8), null, System.IO.Path.GetFileName(path));
+                script.DoString(source, null, System.IO.Path.GetFileName(path));
             }
             catch (EncryptedModuleException e)
             {

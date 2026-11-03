@@ -343,6 +343,25 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
+        public void QueueContinuesAfterFailureAndAcceptsLaterItems()
+        {
+            http.Pages["https://t.test/g/2"] = "<html/>";
+            http.Pages["https://t.test/g/3"] = "<html/>";
+            http.Files["https://img.test/2.jpg"] = Jpeg(2);
+            http.Files["https://img.test/3.jpg"] = Jpeg(3);
+            using var db = new LibraryDb(":memory:");
+            using var runner = Runner(db, Repository(GalleryLua));
+            var failed = db.Enqueue("https://unsupported.test/1");
+            var next = db.Enqueue("https://t.test/g/2");
+            runner.Start();
+            Assert.True(SpinWait.SpinUntil(() => db.Get(next.Id).Status == QueueStatus.Completed, 10000));
+            Assert.Equal(QueueStatus.Failed, db.Get(failed.Id).Status);
+            var later = db.Enqueue("https://t.test/g/3");
+            runner.Wake();
+            Assert.True(SpinWait.SpinUntil(() => db.Get(later.Id).Status == QueueStatus.Completed, 10000));
+        }
+
+        [Fact]
         public void FailedItemsKeepTheirErrorAndCanBeRetried()
         {
             http.Pages["https://t.test/g/1"] = "<html/>";
@@ -578,6 +597,7 @@ namespace MangaDownloader.Lua.Tests
                 var found = tracker.Check(db.GetTracked(series.Id));
                 Assert.Equal(new[] { "Ch 4", "Ch 5" }, found.NewChapters.Select(c => c.Title).ToArray());
                 Assert.Equal(2, found.Series.NewCount);
+                Assert.Equal(found.NewChapters.Select(c => c.Url), found.Series.NewChapterUrls);
                 Assert.False(found.Queued);
                 Assert.Empty(db.ListQueue());
 
@@ -585,6 +605,21 @@ namespace MangaDownloader.Lua.Tests
                 Assert.Empty(again.NewChapters); // already reported once
                 Assert.Equal(0, again.Series.NewCount);
             }
+        }
+
+        [Fact]
+        public void SelectedQueueItemRetainsChaptersOnRetry()
+        {
+            using var db = new LibraryDb(":memory:");
+            Assert.True(db.EnqueueSelected("https://t.test/s", "Series", new[] { "https://t.test/c/2" }));
+            var item = db.ListQueue().Single();
+            Assert.False(db.EnqueueSelected(item.Url, item.Title, new[] { "https://t.test/c/1" }));
+            db.SetStatus(item.Id, QueueStatus.Failed, "failed");
+            Assert.True(db.Retry(item.Id));
+            Assert.Equal(new[] { "https://t.test/c/2" }, db.Get(item.Id).ChapterUrls);
+            db.SetStatus(item.Id, QueueStatus.Completed);
+            db.Enqueue(item.Url);
+            Assert.Null(db.Get(item.Id).ChapterUrls);
         }
 
         [Fact]

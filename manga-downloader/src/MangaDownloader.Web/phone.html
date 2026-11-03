@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send to Manga Downloader</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 560px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 24px; }
+  textarea, button { box-sizing: border-box; width: 100%; padding: 14px; font: inherit; border-radius: 10px; margin-top: 12px; }
+  textarea { min-height: 180px; }
+  button { cursor: pointer; background: #3b5bdb; color: white; border: 0; }
+</style>
+<h1>Send to Manga Downloader</h1>
+<p>Paste gallery or series links below. Downloads are saved on your PC.</p>
+<form id="send">
+  <textarea id="urls" aria-label="Links to download" placeholder="https://… (one link per line)" required></textarea>
+  <button id="submit">Send to PC</button>
+</form>
+<p id="status" role="status"></p>
+<script>
+const token = new URLSearchParams(location.hash.slice(1)).get('token');
+const status = document.getElementById('status'), button = document.getElementById('submit');
+if (!token) { status.textContent = 'Open the full private link shown in the PC app.'; button.disabled = true; }
+document.getElementById('send').onsubmit = async e => {
+  e.preventDefault(); button.disabled = true;
+  try {
+    const response = await fetch('/api/queue', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': token }, body: JSON.stringify({ urls: document.getElementById('urls').value }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || (response.status === 401 ? 'This link expired. Open the new link from your PC.' : 'Could not send links. Try again.'));
+    status.textContent = data.added + ' added, ' + data.alreadyQueued + ' already queued.' + (data.rejected.length ? ' Could not add: ' + data.rejected.map(x => x.url + ': ' + x.error).join(' ') : '');
+    document.getElementById('urls').value = data.rejected.map(x => x.url).join('\n');
+  } catch (error) { status.textContent = error.message || 'Cannot reach your PC. Check Wi-Fi and keep the app running.'; }
+  finally { button.disabled = false; }
+};
+</script>
+</html>

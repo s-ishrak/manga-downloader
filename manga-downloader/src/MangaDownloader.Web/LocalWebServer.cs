@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -44,19 +45,18 @@ namespace MangaDownloader.Web
         private PendingVerification pending;
         private Task acceptLoop;
         private readonly string settingsFile;
-        private readonly object[] sites;
+        private readonly ModuleRepository modules;
         private readonly object settingsGate = new object();
         private int checkEveryMinutes;
+        private readonly object phoneGate = new object();
+        private PhoneLinkServer phone;
 
         /// <param name="settingsFile">Where changes made in the page are saved (only the fields changed there); null keeps them for this run only.</param>
         /// <param name="modules">The loaded scrapers; when given, the page lists the sites they support.</param>
         public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null, string settingsFile = null, ModuleRepository modules = null)
         {
             this.download = download;
-            sites = modules == null ? new object[0] : modules.Modules
-                .SelectMany(m => m.Module.Domains.All.Select(d => new { domain = d, name = m.Module.GetName(d), adult = m.Module.Adult }))
-                .GroupBy(s => s.domain, StringComparer.OrdinalIgnoreCase).Select(g => g.First())
-                .OrderBy(s => s.domain, StringComparer.OrdinalIgnoreCase).ToArray<object>();
+            this.modules = modules;
             this.settingsFile = settingsFile;
             this.library = library;
             this.runner = runner;
@@ -99,6 +99,11 @@ namespace MangaDownloader.Web
 
         public void Dispose()
         {
+            lock (phoneGate)
+            {
+                phone?.Dispose();
+                phone = null;
+            }
             stop?.Cancel();
 
             try
@@ -190,7 +195,10 @@ namespace MangaDownloader.Web
 
                 if (req.HttpMethod == "GET" && path == "/api/sites")
                 {
-                    Send(ctx, 200, sites);
+                    Send(ctx, 200, modules == null ? new object[0] : modules.Modules
+                        .SelectMany(m => m.Module.Domains.All.Select(d => new { domain = d, name = m.Module.GetName(d), adult = m.Module.Adult }))
+                        .GroupBy(s => s.domain, StringComparer.OrdinalIgnoreCase).Select(g => g.First())
+                        .OrderBy(s => s.domain, StringComparer.OrdinalIgnoreCase).ToArray<object>());
                     return;
                 }
 
@@ -267,6 +275,7 @@ namespace MangaDownloader.Web
 
         private object State() => new
         {
+            phone = PhoneState(),
             runner = new { running = runner.IsRunning, paused = runner.IsPaused, active = runner.ActiveCount, concurrency = runner.MaxConcurrent, maxConcurrency = QueueRunner.ConcurrencyLimit },
             outputDirectory = download == null ? null : Path.GetFullPath(download.OutputDirectory),
             settings = download == null ? null : new
@@ -284,7 +293,12 @@ namespace MangaDownloader.Web
             },
             verification = Pending(),
             verificationSteps = MangaDownloader.Net.VerificationText.Steps,
-            queue = library.ListQueue().Where(q => q.Status != QueueStatus.Completed).Reverse().ToList(),
+            queue = library.ListQueue().Where(q => q.Status != QueueStatus.Completed).Reverse().Select(q =>
+            {
+                if (q.Status == QueueStatus.Downloading)
+                    q.PackagingFormat = runner.PackagingFormat(q.Id);
+                return q;
+            }).ToList(),
             history = library.ListHistory(100),
             tracked = library.ListTracked().Select(t => new
             {
@@ -309,22 +323,39 @@ namespace MangaDownloader.Web
 
             var parts = path.Trim('/').Split('/');
 
+            if (path == "/api/sites/add")
+            {
+                if (modules == null) throw new ApiException(400, "Site setup is unavailable.");
+                try
+                {
+                    var result = modules.AddFromLink(Str("url"));
+                    return new { chapters = result.Chapters, pages = result.Pages };
+                }
+                catch (ArgumentException e) { throw new ApiException(400, e.Message); }
+            }
+
+            if (path == "/api/phone")
+            {
+                if (!args.TryGetProperty("enabled", out var enabled) || (enabled.ValueKind != JsonValueKind.True && enabled.ValueKind != JsonValueKind.False))
+                    throw new ApiException(400, "enabled must be true or false.");
+
+                lock (phoneGate)
+                {
+                    if (enabled.GetBoolean())
+                        phone ??= new PhoneLinkServer(EnqueueLinks);
+                    else
+                    {
+                        phone?.Dispose();
+                        phone = null;
+                    }
+                    return PhoneState();
+                }
+            }
+
             if (parts.Length == 2 && parts[0] == "api" && parts[1] == "queue")
             {
-                var urls = (Str("urls") ?? "").Split(new[] { '\r', '\n', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                var bad = urls.Where(u => !Uri.TryCreate(u, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https")).ToList();
-
-                if (urls.Length == 0)
-                    throw new ApiException(400, "Paste at least one http(s) URL.");
-
-                if (bad.Count > 0)
-                    throw new ApiException(400, "Not an http(s) URL: " + bad[0]);
-
-                foreach (var url in urls)
-                    library.Enqueue(url, source: "web");
-
-                runner.Wake();
-                return new { added = urls.Length };
+                try { return EnqueueLinks(body); }
+                catch (ArgumentException e) { throw new ApiException(400, e.Message); }
             }
 
             if (parts.Length == 3 && parts[1] == "queue" && parts[2] == "clear-completed")
@@ -338,7 +369,7 @@ namespace MangaDownloader.Web
                         return new { ok = runner.Cancel(qid) };
                     case "retry":
                         var item = library.Get(qid) ?? throw new ApiException(404, "No such queue item.");
-                        library.Enqueue(item.Url);
+                        if (!library.Retry(item.Id)) throw new ApiException(409, "Only finished or stopped items can be retried.");
                         runner.Wake();
                         return new { ok = true };
                     case "remove":
@@ -363,6 +394,20 @@ namespace MangaDownloader.Web
                 else throw new ApiException(404, "unknown runner action");
 
                 return new { paused = runner.IsPaused, concurrency = runner.MaxConcurrent };
+            }
+
+            if (parts.Length == 3 && parts[1] == "settings" && parts[2] == "choose-folder")
+            {
+                if (!OperatingSystem.IsWindows()) throw new ApiException(400, "Folder selection is available on Windows. Enter a path instead.");
+                // The command is fixed; no browser-provided text is passed to the shell.
+                var picker = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (var argument in new[] { "-NoProfile", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a download folder'; if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }; $d.Dispose()" }) picker.ArgumentList.Add(argument);
+                using var process = Process.Start(picker);
+                var output = process.StandardOutput.ReadToEnd();
+                var error = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0) throw new ApiException(500, "Could not open folder picker: " + error);
+                return new { path = output };
             }
 
             if (parts.Length == 3 && parts[1] == "settings" && parts[2] == "output")
@@ -460,6 +505,30 @@ namespace MangaDownloader.Web
                 return new { ok = done };
             }
 
+            if (parts.Length == 4 && parts[1] == "history" && long.TryParse(parts[2], out var historyId) &&
+                (parts[3] == "open" || parts[3] == "show"))
+            {
+                var entry = library.ListHistory(100).FirstOrDefault(h => h.Id == historyId);
+                if (entry == null || entry.Status != QueueStatus.Completed)
+                    throw new ApiException(404, "Completed download not found.");
+                if (!args.TryGetProperty("index", out var indexValue) || !indexValue.TryGetInt32(out var index) || index < 0 || index >= entry.Outputs.Count)
+                    throw new ApiException(400, "Output not found.");
+                var output = Path.GetFullPath(entry.Outputs[index]);
+                if (!File.Exists(output) && !Directory.Exists(output))
+                    throw new ApiException(404, "This output no longer exists on this computer.");
+                if (!OperatingSystem.IsWindows())
+                    throw new ApiException(400, "Opening files is available on Windows only.");
+                if (parts[3] == "open") Process.Start(new ProcessStartInfo(output) { UseShellExecute = true });
+                else
+                {
+                    var explorer = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+                    if (Directory.Exists(output)) explorer.ArgumentList.Add(output);
+                    else { explorer.ArgumentList.Add("/select,"); explorer.ArgumentList.Add(output); }
+                    Process.Start(explorer);
+                }
+                return new { ok = true };
+            }
+
             if (parts.Length == 3 && parts[1] == "history" && parts[2] == "clear")
                 return new { removed = library.ClearHistory() };
 
@@ -489,6 +558,23 @@ namespace MangaDownloader.Web
 
                 switch (parts[3])
                 {
+                    case "chapters":
+                        var details = tracker.Fetch(series.Url);
+                        var latest = new HashSet<string>(series.NewChapterUrls, StringComparer.Ordinal);
+                        return new { title = details.Title, chapters = details.Chapters.Select(c => new { c.Title, c.Url, isNew = latest.Contains(c.Url) }) };
+                    case "download-selected":
+                        if (!args.TryGetProperty("urls", out var selectedUrls) || selectedUrls.ValueKind != JsonValueKind.Array)
+                            throw new ApiException(400, "Select at least one chapter.");
+                        var requested = selectedUrls.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : null).ToList();
+                        if (requested.Count == 0 || requested.Any(string.IsNullOrEmpty) || requested.Distinct().Count() != requested.Count)
+                            throw new ApiException(400, "Select at least one valid chapter.");
+                        var available = tracker.Fetch(series.Url);
+                        var allowed = new HashSet<string>(available.Chapters.Select(c => c.Url), StringComparer.Ordinal);
+                        if (requested.Any(url => !allowed.Contains(url))) throw new ApiException(409, "The chapter list changed. Refresh the details and select again.");
+                        if (!library.EnqueueSelected(series.Url, available.Title ?? series.Title, requested, "tracker"))
+                            throw new ApiException(409, "This series is already queued or downloading.");
+                        runner.Wake();
+                        return new { added = requested.Count };
                     case "check":
                         Task.Run(() => CheckOne(series));
                         return new { started = true };
@@ -528,6 +614,40 @@ namespace MangaDownloader.Web
         }
 
         /// <summary>The full path of a folder downloads can be written to, created if needed.</summary>
+        private object PhoneState()
+        {
+            lock (phoneGate)
+                return new { enabled = phone != null, urls = phone?.Urls ?? Array.Empty<string>(), qrCodes = phone?.QrCodes ?? Array.Empty<bool[][]>() };
+        }
+
+        private object EnqueueLinks(string body)
+        {
+            using var document = JsonDocument.Parse(body);
+            var args = document.RootElement;
+            if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("urls", out var value) || value.ValueKind != JsonValueKind.String)
+                throw new ArgumentException("Paste at least one http(s) URL.");
+
+            var urls = value.GetString().Split(new[] { '\r', '\n', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (urls.Length == 0)
+                throw new ArgumentException("Paste at least one http(s) URL.");
+
+            var rejected = new List<object>();
+            var added = 0;
+            var alreadyQueued = 0;
+            foreach (var url in urls)
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+                {
+                    rejected.Add(new { url, error = "Enter a valid http(s) URL." });
+                    continue;
+                }
+                if (library.EnqueueIfNotActive(url, source: "web")) added++;
+                else alreadyQueued++;
+            }
+            if (added > 0) runner.Wake();
+            return new { added, alreadyQueued, rejected };
+        }
+
         private static string UsableFolder(string text)
         {
             var folder = (text ?? "").Trim();

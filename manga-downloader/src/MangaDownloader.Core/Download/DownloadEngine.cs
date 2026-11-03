@@ -75,6 +75,7 @@ namespace MangaDownloader.Core.Download
         public DownloadReport Report { get; set; }
         public int PagesDone { get; set; }
         public int PagesTotal { get; set; }
+        public string PackagingFormat { get; set; }
 
         /// <summary>Overall completion 0..1 of this gallery: finished chapters plus the share of the current chapter's pages.</summary>
         public double Fraction { get; set; }
@@ -119,9 +120,11 @@ namespace MangaDownloader.Core.Download
             this.log = log ?? (_ => { });
         }
 
-        public IList<DownloadReport> Download(string url, CancellationToken cancel = default) => Download(url, 0, cancel);
+        public IList<DownloadReport> Download(string url, CancellationToken cancel = default) => Download(url, 0, cancel, null);
 
-        private IList<DownloadReport> Download(string url, int depth, CancellationToken cancel)
+        public IList<DownloadReport> DownloadSelected(string url, IEnumerable<string> chapters, CancellationToken cancel = default) => Download(url, 0, cancel, new HashSet<string>(chapters, StringComparer.Ordinal));
+
+        private IList<DownloadReport> Download(string url, int depth, CancellationToken cancel, HashSet<string> selected)
         {
             var reports = new List<DownloadReport>();
             var report = new DownloadReport { Url = url };
@@ -137,6 +140,7 @@ namespace MangaDownloader.Core.Download
 
                 if (info.Ignore)
                 {
+                    if (selected != null) throw new InvalidOperationException("This series is now a list page. Select chapters again from the series page.");
                     log($"list page: {info.Enqueued.Count} item(s) queued");
 
                     if (depth >= options.MaxQueueDepth)
@@ -145,14 +149,14 @@ namespace MangaDownloader.Core.Download
                     foreach (var queued in info.Enqueued.Distinct())
                     {
                         cancel.ThrowIfCancellationRequested();
-                        reports.AddRange(Download(queued, depth + 1, cancel));
+                        reports.AddRange(Download(queued, depth + 1, cancel, null));
                     }
 
                     return reports;
                 }
 
                 reports.Add(report);
-                DownloadSeries(url, match, session, info, report, cancel);
+                DownloadSeries(url, match, session, info, report, cancel, selected);
             }
             catch (OperationCanceledException)
             {
@@ -169,7 +173,7 @@ namespace MangaDownloader.Core.Download
             return reports;
         }
 
-        private void RaiseProgress(DownloadReport report, int chapterDone, int chapterTotal)
+        private void RaiseProgress(DownloadReport report, int chapterDone, int chapterTotal, string packagingFormat = null)
         {
             var current = chapterTotal > 0 ? (double)chapterDone / chapterTotal : 0;
             var chapters = Math.Max(1, report.ChaptersTotal);
@@ -179,6 +183,7 @@ namespace MangaDownloader.Core.Download
                 Report = report,
                 PagesDone = report.PagesDownloaded + report.PagesSkipped + report.PagesFailed,
                 PagesTotal = report.PagesTotal,
+                PackagingFormat = packagingFormat,
                 Fraction = Math.Min(1.0, (report.ChaptersDone + current) / chapters),
             });
         }
@@ -206,11 +211,16 @@ namespace MangaDownloader.Core.Download
             }
         }
 
-        private void DownloadSeries(string url, ModuleMatch match, ModuleSession session, InfoResult info, DownloadReport report, CancellationToken cancel)
+        private void DownloadSeries(string url, ModuleMatch match, ModuleSession session, InfoResult info, DownloadReport report, CancellationToken cancel, HashSet<string> selected)
         {
             var chapters = session.GetChapters(url).ToList();
+            if (selected != null)
+            {
+                if (chapters.Count(c => c.Url != null && selected.Contains(c.Url)) != selected.Count)
+                    throw new InvalidOperationException("The chapter list changed. Open series details and select chapters again.");
+            }
             var single = chapters.Count <= 1;
-            report.ChaptersTotal = Math.Max(1, chapters.Count);
+            report.ChaptersTotal = selected == null ? Math.Max(1, chapters.Count) : selected.Count;
 
             if (chapters.Count == 0)
                 chapters.Add(new ChapterResult { Url = url });
@@ -219,7 +229,7 @@ namespace MangaDownloader.Core.Download
             var folderName = SafeName(NameFormatter.Format(options.FolderFormat, infoValues));
             var seriesDir = Path.Combine(options.OutputDirectory, folderName);
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var combine = options.CombineChapters && !single && ArchivePath(seriesDir) != null;
+            var combine = selected == null && options.CombineChapters && !single && ArchivePath(seriesDir) != null;
             var combinedPath = combine ? ArchivePath(seriesDir) : null;
             var chapterDirs = new List<string>();
 
@@ -265,6 +275,7 @@ namespace MangaDownloader.Core.Download
                     archiveBase = workDir;
                 }
 
+                if (selected != null && !selected.Contains(chapter.Url)) continue;
                 DownloadChapter(chapter.Url ?? url, session, infoValues, info, workDir, combine ? null : archiveBase, report, cancel);
                 chapterDirs.Add(workDir);
                 report.ChaptersDone++;
@@ -283,13 +294,15 @@ namespace MangaDownloader.Core.Download
                 bookmarks.Add(new KeyValuePair<int, string>(entries.Count, Path.GetFileName(dir)));
 
                 foreach (var file in ArchiveFiles.List(dir))
-                    entries.Add(new KeyValuePair<string, string>(file, Path.GetFileName(dir) + "/" + Path.GetFileName(file)));
+                    entries.Add(new KeyValuePair<string, string>(file, (options.SaveFormat == SaveFormat.Cbz ? folderName + "/" : "") + Path.GetFileName(dir) + "/" + Path.GetFileName(file)));
             }
 
+            RaiseProgress(report, 0, 0, options.SaveFormat.ToString().ToUpperInvariant());
             if (options.SaveFormat == SaveFormat.Pdf)
                 PdfWriter.Create(entries.Select(e => e.Key).ToList(), combinedPath, info.Fields);
             else
-                CbzWriter.Create(entries, combinedPath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null, bookmarks);
+                CbzWriter.Create(entries, combinedPath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null, bookmarks,
+                    includeDirectories: options.SaveFormat == SaveFormat.Cbz);
 
             log("wrote " + combinedPath);
             report.Outputs.Add(combinedPath);
@@ -343,7 +356,7 @@ namespace MangaDownloader.Core.Download
 
             Parallel.For(0, pages.Count,
                 new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, options.MaxParallel), CancellationToken = cancel },
-                i =>
+                (i, loopState) =>
                 {
                     var existing = FindExisting(workDir, names[i]);
 
@@ -373,6 +386,15 @@ namespace MangaDownloader.Core.Download
                     catch (OperationCanceledException)
                     {
                         throw;
+                    }
+                    catch (SolverCancelledException e)
+                    {
+                        loopState.Stop();
+                        lock (gate)
+                        {
+                            errors.Add($"page {i + 1}: {e.Message}");
+                            report.PagesFailed++;
+                        }
                     }
                     catch (Exception e)
                     {
@@ -405,6 +427,7 @@ namespace MangaDownloader.Core.Download
                 return;
             }
 
+            RaiseProgress(report, pages.Count, pages.Count, options.SaveFormat.ToString().ToUpperInvariant());
             if (options.SaveFormat == SaveFormat.Pdf)
                 PdfWriter.Create(ArchiveFiles.List(workDir), archivePath, info.Fields);
             else
@@ -496,6 +519,10 @@ namespace MangaDownloader.Core.Download
                     {
                         last = e;
                         break; // 4xx: retrying the same URL is pointless; try the backup
+                    }
+                    catch (SolverCancelledException)
+                    {
+                        throw;
                     }
                     catch (Exception e) when (!(e is OperationCanceledException))
                     {

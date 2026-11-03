@@ -16,7 +16,7 @@ tests/
   MangaDownloader.Lua.Tests/   API conformance + fixture tests (real upstream modules vs synthetic HTML)
 ```
 
-Modules are not vendored. Point at a folder of upstream `.lua` files (e.g. a HDoujin install's `modules/lua`):
+Kagane support is built in and accepts series and chapter reader URLs. Other modules are not vendored. Point at a folder of upstream `.lua` files (e.g. a HDoujin install's `modules/lua`):
 `--modules DIR`, or `MANGA_DOWNLOADER_MODULES`, or `./modules/lua`.
 
 ## Use
@@ -38,7 +38,7 @@ Formatting strings: `%TOKEN%` (case-insensitive), `%A||B%` fallback, `%ARTIST(2)
 
 ## Windows launcher
 
-Install the Windows release, then open **Manga Downloader** from the Start menu. The launcher downloads modules on first use and runs the local interface without a terminal. Close the window to keep downloading; use the tray menu **Exit** to stop. Edit `launcher.json` beside the executable to change the module folder, port, or manual browser challenges. An empty module path uses `%APPDATA%\manga-downloader\modules\lua`.
+Install the Windows release, then open **Manga Downloader** from the Start menu. The launcher downloads modules on first use and runs the local interface without a terminal. Closing the standalone window stops the app; interrupted downloads resume next time. Edit `launcher.json` beside the executable to change the module folder, port, or manual browser challenges. An empty module path uses `%APPDATA%\manga-downloader\modules\lua`.
 
 For source builds, run `Start manga-downloader.cmd` from this directory with the .NET 5 SDK installed. It rebuilds changed source files and launches `dist\Manga Downloader.exe`.
 

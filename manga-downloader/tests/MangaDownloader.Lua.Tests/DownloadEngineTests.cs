@@ -83,6 +83,24 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
+        public void ReportsPackagingBeforeWritingArchive()
+        {
+            ThreePages();
+            var engine = Engine(ThreePageGallery, new DownloadOptions { SaveFormat = SaveFormat.Cbz });
+            var seen = false;
+            engine.Progress = progress =>
+            {
+                if (progress.PackagingFormat != "CBZ") return;
+                seen = true;
+                Assert.Equal(3, progress.PagesDone);
+                Assert.False(File.Exists(Path.Combine(root, "out", "My Doujin.cbz")));
+            };
+            var report = engine.Download("https://t.test/g/1").Single();
+            Assert.True(report.Success, string.Join("; ", report.Errors));
+            Assert.True(seen);
+        }
+
+        [Fact]
         public void FolderFormatKeepsImagesAndUsesCustomPageNames()
         {
             ThreePages();
@@ -225,6 +243,23 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
+        public void SelectedChaptersKeepOriginalNamesAndDoNotReplaceCombinedArchive()
+        {
+            http.Pages["https://t.test/s"] = "<html></html>";
+            http.Pages["https://t.test/c/1"] = "<html></html>";
+            http.Pages["https://t.test/c/2"] = "<html></html>";
+            Page("https://img.test/a.jpg", 1);
+            Page("https://img.test/b.jpg", 2);
+            var lua = "function GetInfo() info.Title = 'Series' end\n" +
+                      "function GetChapters() chapters.Add('/c/1', 'One') chapters.Add('/c/2', 'Two') end\n" +
+                      "function GetPages() if url:contains('/c/1') then pages.Add('https://img.test/a.jpg') else pages.Add('https://img.test/b.jpg') end end\n";
+            var report = Engine(lua, new DownloadOptions { CombineChapters = true }).DownloadSelected("https://t.test/s", new[] { "https://t.test/c/2" }).Single();
+            Assert.True(report.Success, string.Join("; ", report.Errors));
+            Assert.Equal(new[] { "2 - Two.cbz" }, Directory.GetFiles(Path.Combine(root, "out", "Series")).Select(Path.GetFileName).ToArray());
+            Assert.Equal(1, report.ChaptersDone);
+        }
+
+        [Fact]
         public void CombinedCbzIncludesChapterBookmarksAtTheirFirstPages()
         {
             http.Pages["https://t.test/s"] = "<html></html>";
@@ -246,7 +281,7 @@ namespace MangaDownloader.Lua.Tests
             {
                 Assert.Equal(
                     // Page names use series metadata; chapter titles name the enclosing folders.
-                    new[] { "1 - One/Series_001.jpg", "2 - Two/Series_001.jpg", "2 - Two/Series_002.jpg", "ComicInfo.xml" },
+                    new[] { "ComicInfo.xml", "Series/", "Series/1 - One/", "Series/1 - One/Series_001.jpg", "Series/2 - Two/", "Series/2 - Two/Series_001.jpg", "Series/2 - Two/Series_002.jpg" },
                     zip.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
                 using (var stream = zip.GetEntry("ComicInfo.xml").Open())

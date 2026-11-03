@@ -10,7 +10,13 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="5.0.17" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Modules\ILikeComix.lua" LogicalName="MangaDownloader.Core.Modules.ILikeComix.lua" />
+    <EmbeddedResource Include="Modules\Kagane.lua" LogicalName="MangaDownloader.Core.Modules.Kagane.lua" />
+  </ItemGroup>
+
   <PropertyGroup>
   </PropertyGroup>
 
 </Project>
+

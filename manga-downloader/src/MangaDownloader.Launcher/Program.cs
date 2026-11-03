@@ -58,12 +58,16 @@ namespace MangaDownloader.Launcher
         private readonly string logFile;
         private readonly string appDirectory;
         private readonly string uiProfileDirectory;
+        private readonly Control dispatcher;
         private Process server;
+        private Process browser;
         private string webUiUrl;
         private bool exiting;
 
         public LauncherContext()
         {
+            dispatcher = new Control();
+            _ = dispatcher.Handle;
             appDirectory = AppContext.BaseDirectory;
             logFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "manga-downloader", "launcher.log");
@@ -89,7 +93,28 @@ namespace MangaDownloader.Launcher
             {
                 startup.Stop();
                 startup.Dispose();
-                try { await Task.Run(() => StartServer(appDirectory)); }
+                try
+                {
+                    var settings = LoadSettings(Path.Combine(appDirectory, "launcher.json"));
+                    var marker = Path.Combine(Path.GetDirectoryName(logFile), "modules", "lua", ".setup-complete");
+                    if (string.IsNullOrWhiteSpace(settings.Modules) && !File.Exists(marker))
+                    {
+                        using var setup = new SetupWindow(OpenLog);
+                        setup.Show();
+                        while (!exiting)
+                        {
+                            setup.Working();
+                            try { await Task.Run(() => StartServer(appDirectory)); break; }
+                            catch (Exception e)
+                            {
+                                AppendLog(e.ToString());
+                                if (!await setup.Failed(e.Message)) { ExitLauncher(); return; }
+                            }
+                        }
+                        setup.Close();
+                    }
+                    else await Task.Run(() => StartServer(appDirectory));
+                }
                 catch (Exception e)
                 {
                     MessageBox.Show(e.Message, "Manga Downloader could not start", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -231,6 +256,15 @@ namespace MangaDownloader.Launcher
 
         private void OpenWebUi()
         {
+            if (dispatcher.InvokeRequired)
+            {
+                dispatcher.BeginInvoke(new Action(OpenWebUi));
+                return;
+            }
+
+            if (browser != null || exiting)
+                return;
+
             if (string.IsNullOrWhiteSpace(webUiUrl))
             {
                 trayIcon.ShowBalloonTip(2500, "Manga Downloader", "The web UI is still starting.", ToolTipIcon.Info);
@@ -253,22 +287,37 @@ namespace MangaDownloader.Launcher
                     info.ArgumentList.Add(webUiUrl);
                     info.ArgumentList.Add("--profile");
                     info.ArgumentList.Add(uiProfileDirectory);
-                    var browser = Process.Start(info);
-                    browser.EnableRaisingEvents = true;
+                    browser = Process.Start(info);
+                    var opened = browser;
                     browser.ErrorDataReceived += (_, e) => AppendLog(e.Data);
                     browser.Exited += (_, __) =>
                     {
                         // Exit code 4 means WebView2 could not initialize. Keep the app usable by
                         // opening its local page in the user's normal browser instead.
-                        if (browser.ExitCode == 4 && !exiting)
+                        var exitCode = opened.ExitCode;
+                        if (exiting)
                         {
-                            AppendLog("The embedded app window could not start; opening the web UI in the default browser.");
-                            OpenInDefaultBrowser();
+                            opened.Dispose();
+                            return;
                         }
-
-                        browser.Dispose();
+                        try { dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            browser = null;
+                            opened.Dispose();
+                            if (exiting)
+                                return;
+                            if (exitCode == 4)
+                            {
+                                AppendLog("The embedded app window could not start; opening the web UI in the default browser.");
+                                OpenInDefaultBrowser();
+                            }
+                            else
+                                ExitLauncher();
+                        })); }
+                        catch (InvalidOperationException) { opened.Dispose(); }
                     };
                     browser.BeginErrorReadLine();
+                    browser.EnableRaisingEvents = true;
                 }
                 else
                 {
@@ -305,6 +354,8 @@ namespace MangaDownloader.Launcher
             exiting = true;
             try
             {
+                if (browser != null && !browser.HasExited)
+                    browser.Kill(true);
                 if (server != null && !server.HasExited)
                     server.Kill(true);
             }
@@ -319,11 +370,60 @@ namespace MangaDownloader.Launcher
             openEvent?.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
+            dispatcher.Dispose();
             server?.Dispose();
             base.ExitThreadCore();
         }
 
         private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
+    }
+
+    internal sealed class SetupWindow : Form
+    {
+        private readonly Label status;
+        private readonly ProgressBar progress;
+        private readonly Button retry;
+        private readonly Button cancel;
+        private TaskCompletionSource<bool> decision;
+        private bool allowClose;
+
+        public SetupWindow(Action openLog)
+        {
+            Text = "Manga Downloader setup";
+            StartPosition = FormStartPosition.CenterScreen;
+            ClientSize = new Size(480, 180);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false; MinimizeBox = false;
+            status = new Label { Left = 20, Top = 20, Width = 440, Height = 55, Text = "Downloading site modules. This may take a few minutes." };
+            progress = new ProgressBar { Left = 20, Top = 82, Width = 440, Height = 18, Style = ProgressBarStyle.Marquee };
+            retry = new Button { Left = 20, Top = 120, Width = 90, Text = "Retry", Enabled = false };
+            cancel = new Button { Left = 120, Top = 120, Width = 90, Text = "Exit", Enabled = false };
+            var log = new Button { Left = 220, Top = 120, Width = 100, Text = "Open log" };
+            retry.Click += (_, __) => decision?.TrySetResult(true);
+            cancel.Click += (_, __) => decision?.TrySetResult(false);
+            log.Click += (_, __) => openLog();
+            FormClosing += (_, e) => { if (!allowClose) { e.Cancel = true; decision?.TrySetResult(false); } };
+            Controls.AddRange(new Control[] { status, progress, retry, cancel, log });
+        }
+
+        public void Working()
+        {
+            status.Text = "Downloading site modules. This may take a few minutes.";
+            progress.Style = ProgressBarStyle.Marquee;
+            retry.Enabled = cancel.Enabled = false;
+        }
+
+        public Task<bool> Failed(string message)
+        {
+            status.Text = message;
+            progress.Style = ProgressBarStyle.Blocks;
+            retry.Enabled = cancel.Enabled = true;
+            decision = new TaskCompletionSource<bool>();
+            return decision.Task;
+        }
+
+        protected override void Dispose(bool disposing) { allowClose = true; base.Dispose(disposing); }
+        public new void Close() { allowClose = true; base.Close(); }
     }
 
     internal sealed class LauncherSettings

@@ -89,6 +89,64 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
+        public void PhoneLinksOnlySubmitUrlsAndExpireWhenDisabled()
+        {
+            Assert.False(Ok(Request(HttpMethod.Get, "/api/state")).GetProperty("phone").GetProperty("enabled").GetBoolean());
+            Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/phone", "{}")).Status);
+            var phone = Ok(Request(HttpMethod.Post, "/api/phone", "{\"enabled\":true}"));
+            var link = new Uri(phone.GetProperty("urls")[0].GetString());
+            var matrix = phone.GetProperty("qrCodes")[0];
+            Assert.True(matrix.GetArrayLength() > 20);
+            Assert.Equal(matrix.GetArrayLength(), matrix[0].GetArrayLength());
+            var token = link.Fragment.Substring("#token=".Length);
+            using var remote = new HttpClient(new HttpClientHandler { UseProxy = false });
+            remote.BaseAddress = new Uri(link.GetLeftPart(UriPartial.Authority));
+
+            HttpResponseMessage Submit(string body, string access = null, string origin = null)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post, "/api/queue");
+                if (access != null) request.Headers.Add("X-Token", access);
+                if (origin != null) request.Headers.Add("Origin", origin);
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                return remote.SendAsync(request).GetAwaiter().GetResult();
+            }
+
+            var page = remote.GetStringAsync("/").GetAwaiter().GetResult();
+            Assert.Contains("Send to PC", page);
+            Assert.DoesNotContain(token, page);
+            Assert.Equal(HttpStatusCode.NotFound, remote.GetAsync("/api/state").Result.StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, remote.PostAsync("/api/settings", new StringContent("{}")).Result.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, Submit("{\"urls\":\"https://t.test/s\"}").StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, Submit("{\"urls\":\"https://t.test/s\"}", "wrong").StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, Submit("{\"urls\":\"https://t.test/s\"}", token, "http://evil.test").StatusCode);
+            Assert.Equal(HttpStatusCode.OK, Submit("{\"urls\":\"javascript:alert(1)\"}", token).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, Submit("{broken", token).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, Submit("[]", token).StatusCode);
+            Assert.Empty(db.ListQueue());
+            var result = Submit("{\"urls\":\"https://t.test/s\"}", token, link.GetLeftPart(UriPartial.Authority));
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+            Assert.Single(db.ListQueue());
+
+            var forged = new HttpRequestMessage(HttpMethod.Get, "/");
+            forged.Headers.Host = "evil.test:" + link.Port;
+            Assert.Equal(HttpStatusCode.Forbidden, remote.SendAsync(forged).Result.StatusCode);
+
+            var disabled = Ok(Request(HttpMethod.Post, "/api/phone", "{\"enabled\":false}"));
+            Assert.False(disabled.GetProperty("enabled").GetBoolean());
+            Assert.Empty(disabled.GetProperty("urls").EnumerateArray());
+            Assert.Throws<HttpRequestException>(() => remote.GetAsync("/").GetAwaiter().GetResult());
+
+            phone = Ok(Request(HttpMethod.Post, "/api/phone", "{\"enabled\":true}"));
+            var replacement = new Uri(phone.GetProperty("urls")[0].GetString());
+            Assert.NotEqual(link.Fragment, replacement.Fragment);
+            using var stale = new HttpRequestMessage(HttpMethod.Post, replacement.GetLeftPart(UriPartial.Authority) + "/api/queue");
+            stale.Headers.Add("X-Token", token);
+            stale.Content = new StringContent("{\"urls\":\"https://t.test/other\"}", Encoding.UTF8, "application/json");
+            Assert.Equal(HttpStatusCode.Unauthorized, remote.SendAsync(stale).Result.StatusCode);
+            Assert.Single(db.ListQueue());
+        }
+
+        [Fact]
         public void RequiresTheTokenAndHandsItToABrowserAsACookie()
         {
             Assert.Equal(HttpStatusCode.Unauthorized, Call(Request(HttpMethod.Get, "/", auth: false)).Status);
@@ -107,13 +165,26 @@ namespace MangaDownloader.Lua.Tests
             using (var page = client.SendAsync(Request(HttpMethod.Get, "/")).GetAwaiter().GetResult())
             {
                 Assert.Equal(HttpStatusCode.OK, page.StatusCode);
-                Assert.Contains("<title>manga-downloader</title>", page.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+                Assert.Contains("<title>Manga Downloader</title>", page.Content.ReadAsStringAsync().GetAwaiter().GetResult());
                 Assert.Contains("frame-ancestors 'none'", string.Join(";", page.Headers.GetValues("Content-Security-Policy")));
             }
 
             var viaHeader = Request(HttpMethod.Get, "/api/state", auth: false);
             viaHeader.Headers.Add("X-Token", "test-token");
             Assert.Equal(HttpStatusCode.OK, Call(viaHeader).Status);
+        }
+
+        [Fact]
+        public void SeriesSelectionValidatesChaptersAndPersistsInQueue()
+        {
+            var tracked = Ok(Request(HttpMethod.Post, "/api/track", "{\"url\":\"https://t.test/s\"}"));
+            var id = tracked.GetProperty("id").GetInt64();
+            var details = Ok(Request(HttpMethod.Post, $"/api/track/{id}/chapters", "{}"));
+            Assert.Equal(2, details.GetProperty("chapters").GetArrayLength());
+            Assert.Equal(HttpStatusCode.Conflict, Call(Request(HttpMethod.Post, $"/api/track/{id}/download-selected", "{\"urls\":[\"https://evil.test/x\"]}")).Status);
+            Ok(Request(HttpMethod.Post, $"/api/track/{id}/download-selected", "{\"urls\":[\"https://t.test/c/2\"]}"));
+            Assert.Equal(new[] { "https://t.test/c/2" }, db.ListQueue().Single().ChapterUrls);
+            Assert.Equal(HttpStatusCode.Conflict, Call(Request(HttpMethod.Post, $"/api/track/{id}/download-selected", "{\"urls\":[\"https://t.test/c/1\"]}")).Status);
         }
 
         [Fact]
@@ -145,8 +216,12 @@ namespace MangaDownloader.Lua.Tests
             Assert.Equal(2, added.GetProperty("added").GetInt32());
 
             var (status, error) = Call(Request(HttpMethod.Post, "/api/queue", "{\"urls\":\"javascript:alert(1)\"}"));
-            Assert.Equal(HttpStatusCode.BadRequest, status);
-            Assert.Contains("http(s)", error.GetProperty("error").GetString());
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.Contains("http(s)", error.GetProperty("rejected")[0].GetProperty("error").GetString());
+            var mixed = Ok(Request(HttpMethod.Post, "/api/queue", "{\"urls\":\"https://t.test/g/1 invalid\"}"));
+            Assert.Equal(0, mixed.GetProperty("added").GetInt32());
+            Assert.Equal(1, mixed.GetProperty("alreadyQueued").GetInt32());
+            Assert.Equal("invalid", mixed.GetProperty("rejected")[0].GetProperty("url").GetString());
             Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/queue", "{\"urls\":\"   \"}")).Status);
 
             var state = Ok(Request(HttpMethod.Get, "/api/state"));

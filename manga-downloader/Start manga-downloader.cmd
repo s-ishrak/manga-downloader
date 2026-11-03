@@ -1,6 +1,6 @@
 @echo off
 rem One-click launcher: starts the manga-downloader web UI and opens it in a standalone window.
-rem Use the notification-area menu Exit to stop the app.
+rem Closing the standalone window stops the app.
 rem
 rem It rebuilds by itself whenever the source has changed since the last build.
 

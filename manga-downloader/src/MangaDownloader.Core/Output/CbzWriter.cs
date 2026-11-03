@@ -21,7 +21,7 @@ namespace MangaDownloader.Core.Output
 
         /// <summary>Same, from explicit (file, entry name) pairs in archive order, so several chapter folders can share one archive.</summary>
         public static void Create(IList<KeyValuePair<string, string>> files, string archivePath, IDictionary<string, string> info,
-            IList<KeyValuePair<int, string>> chapters = null)
+            IList<KeyValuePair<int, string>> chapters = null, bool includeDirectories = false)
         {
             var temp = archivePath + ".tmp";
 
@@ -34,8 +34,20 @@ namespace MangaDownloader.Core.Output
             {
                 using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
                 {
+                    var directories = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var file in files)
+                    {
+                        if (includeDirectories)
+                        {
+                            for (var slash = file.Value.IndexOf('/'); slash >= 0; slash = file.Value.IndexOf('/', slash + 1))
+                            {
+                                var directory = file.Value.Substring(0, slash + 1);
+                                if (directories.Add(directory))
+                                    zip.CreateEntry(directory);
+                            }
+                        }
                         zip.CreateEntryFromFile(file.Key, file.Value, CompressionLevel.NoCompression);
+                    }
 
                     if (info != null)
                     {

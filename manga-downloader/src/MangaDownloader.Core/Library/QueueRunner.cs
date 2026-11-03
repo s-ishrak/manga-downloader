@@ -33,6 +33,7 @@ namespace MangaDownloader.Core.Library
         private sealed class ActiveItem
         {
             public CancellationTokenSource Cancel;
+            public string PackagingFormat;
 
             /// <summary>True when the item is interrupted because the queue was stopped, so it goes back to Queued instead of Stopped.</summary>
             public volatile bool Requeue;
@@ -77,6 +78,12 @@ namespace MangaDownloader.Core.Library
         {
             lock (gate)
                 return active.ContainsKey(id);
+        }
+
+        public string PackagingFormat(long id)
+        {
+            lock (gate)
+                return active.TryGetValue(id, out var item) ? item.PackagingFormat : null;
         }
 
         /// <summary>Starts the background loop (idempotent). Items left "Downloading" by a crash are queued again first.</summary>
@@ -213,17 +220,12 @@ namespace MangaDownloader.Core.Library
                         // Claimed here, not in the task, so the next pass cannot pick the same item again.
                         var slot = Begin(item, stop);
 
-                        running.Add(Task.Run(() =>
-                        {
-                            try
-                            {
-                                Process(item, slot);
-                            }
-                            finally
-                            {
-                                Wake(); // a slot is free
-                            }
-                        }));
+                        var task = Task.Run(() => Process(item, slot));
+                        running.Add(task);
+                        // Signal only after the task is marked complete, otherwise the pump can
+                        // wake too early, see a full slot, and sleep forever.
+                        task.ContinueWith(_ => Wake(), CancellationToken.None,
+                            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
                         continue;
                     }
@@ -287,10 +289,16 @@ namespace MangaDownloader.Core.Library
                     {
                         lock (sums)
                         {
+                            bool phaseChanged;
+                            lock (gate)
+                            {
+                                phaseChanged = slot.PackagingFormat != p.PackagingFormat;
+                                slot.PackagingFormat = p.PackagingFormat;
+                            }
                             sums[p.Report] = (p.PagesDone, p.PagesTotal, p.Report.ChaptersDone, p.Report.ChaptersTotal);
                             fraction = p.Fraction;
 
-                            if (throttle.ElapsedMilliseconds < 300)
+                            if (!phaseChanged && throttle.ElapsedMilliseconds < 300)
                                 return;
 
                             throttle.Restart();
@@ -301,7 +309,7 @@ namespace MangaDownloader.Core.Library
                         Changed?.Invoke();
                     };
 
-                    reports.AddRange(engine.Download(item.Url, slot.Cancel.Token));
+                    reports.AddRange(item.ChapterUrls == null ? engine.Download(item.Url, slot.Cancel.Token) : engine.DownloadSelected(item.Url, item.ChapterUrls, slot.Cancel.Token));
                 }
                 catch (OperationCanceledException)
                 {

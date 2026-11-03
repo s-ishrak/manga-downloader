@@ -59,7 +59,7 @@ namespace MangaDownloader.Core.Library
 
                 // Keep everything ever seen, so a chapter the site drops and re-adds is not reported twice.
                 var all = series.KnownChapters.Concat(result.NewChapters.Select(c => c.Url)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                library.UpdateTracked(series.Id, all, result.NewChapters.Count, null, title);
+                library.UpdateTracked(series.Id, all, result.NewChapters.Count, null, title, result.NewChapters.Select(c => c.Url));
 
                 if (series.AutoDownload && result.NewChapters.Count > 0)
                 {
@@ -79,7 +79,7 @@ namespace MangaDownloader.Core.Library
 
         public IList<CheckResult> CheckAll() => library.ListTracked().Select(Check).ToList();
 
-        private (string Title, List<ChapterRef> Chapters) Fetch(string url)
+        public (string Title, List<ChapterRef> Chapters) Fetch(string url)
         {
             var match = repository.Find(url) ?? throw new InvalidOperationException("No module supports " + url);
             var session = new ModuleSession(match.File, credentials);

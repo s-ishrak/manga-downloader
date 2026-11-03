@@ -131,6 +131,7 @@ namespace MangaDownloader.Net
         private readonly object gate = new object();
         private readonly object solveGate = new object();
         private readonly Dictionary<string, DateTime> lastSolved = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, (DateTime At, string Message)> lastCancelled = new Dictionary<string, (DateTime, string)>(StringComparer.OrdinalIgnoreCase);
 
         public CloudflareBackend(IHttpBackend inner, CookieJar jar, IChallengeSolver solver)
         {
@@ -186,11 +187,20 @@ namespace MangaDownloader.Net
             // then just retry with the cookies the first solve produced, instead of opening another browser window each.
             lock (solveGate)
             {
+                if (lastCancelled.TryGetValue(host, out var cancelled) && cancelled.At >= started)
+                    throw new SolverCancelledException(cancelled.Message);
+
                 if (!lastSolved.TryGetValue(host, out var solvedAt) || solvedAt < started)
                 {
                     Log("Cloudflare challenge at " + host + "; asking the solver...");
 
-                    var solution = solver.Solve(request);
+                    SolverSolution solution;
+                    try { solution = solver.Solve(request); }
+                    catch (SolverCancelledException e)
+                    {
+                        lastCancelled[host] = (DateTime.UtcNow, e.Message);
+                        throw;
+                    }
 
                     foreach (var cookie in solution.Cookies)
                     {

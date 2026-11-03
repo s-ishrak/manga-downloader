@@ -25,6 +25,14 @@ A Windows desktop launcher and local web interface powered by community Lua scra
 
 The installer is currently unsigned, so Windows may display an unknown-publisher or SmartScreen prompt. Download only from this repository's release assets; `SHA256SUMS.txt` is provided alongside the installer.
 
+## Send links from your phone
+
+1. Keep your PC and phone on the same Wi-Fi, with Manga Downloader running on the PC.
+2. Open **Settings → Send from phone → Enable phone links** in the PC app.
+3. Open one of the displayed private links in your phone's browser and bookmark it. Paste gallery or series URLs and tap **Send to PC** to add them to the PC's download queue.
+
+If Windows Firewall asks, allow Manga Downloader on **private networks**. If the page cannot connect, check that your router allows devices to communicate (guest Wi-Fi may block this). The link allows adding downloads, so keep it private and use it only on a trusted network. The connection uses local HTTP. **Disable phone links** stops access immediately; closing the app also turns it off. Enabling it again creates a new private link. Phone access only exposes link submission; downloads use the PC's current settings.
+
 ## Features
 
 | Feature | What you can do |

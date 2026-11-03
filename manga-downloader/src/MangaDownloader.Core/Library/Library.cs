@@ -29,6 +29,9 @@ namespace MangaDownloader.Core.Library
         /// <summary>Overall completion in permille (0-1000).</summary>
         public int Progress { get; set; }
 
+        /// <summary>The archive currently being written, if any; this is runtime state, not stored in the library.</summary>
+        public string PackagingFormat { get; set; }
+
         /// <summary>Chapters finished / found so far, summed over every gallery the item turned into (0 before the download starts).</summary>
         public int ChaptersDone { get; set; }
         public int ChaptersTotal { get; set; }
@@ -40,6 +43,7 @@ namespace MangaDownloader.Core.Library
 
         /// <summary>Where the item came from: "cli", "web", "import", "tracker".</summary>
         public string Source { get; set; }
+        public List<string> ChapterUrls { get; set; }
     }
 
     public sealed class HistoryEntry
@@ -64,6 +68,7 @@ namespace MangaDownloader.Core.Library
 
         /// <summary>New chapters found by the last check.</summary>
         public int NewCount { get; set; }
+        public List<string> NewChapterUrls { get; set; } = new List<string>();
 
         /// <summary>Queue the series again whenever new chapters appear.</summary>
         public bool AutoDownload { get; set; }
@@ -77,7 +82,7 @@ namespace MangaDownloader.Core.Library
     /// </summary>
     public sealed class LibraryDb : IDisposable
     {
-        private const int SchemaVersion = 2;
+        private const int SchemaVersion = 4;
 
         private readonly SqliteConnection db;
         private readonly object gate = new object();
@@ -158,6 +163,12 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                 Exec("ALTER TABLE queue ADD COLUMN chapters_total INTEGER NOT NULL DEFAULT 0;");
                 Exec("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '3');");
             }
+            if (version < 4)
+            {
+                Exec("ALTER TABLE queue ADD COLUMN chapter_urls TEXT;");
+                Exec("ALTER TABLE tracked ADD COLUMN new_chapter_urls TEXT;");
+                Exec("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '4');");
+            }
         }
 
         // ---- queue ---------------------------------------------------------------------------------------------
@@ -191,7 +202,7 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                     if (existing.Status == QueueStatus.Queued || existing.Status == QueueStatus.Downloading)
                         return existing;
 
-                    Exec("UPDATE queue SET status=$s, error=NULL, pages_done=0, pages_total=0, progress=0, chapters_done=0, chapters_total=0, updated_at=$t, position=$p WHERE id=$id",
+                    Exec("UPDATE queue SET status=$s, error=NULL, pages_done=0, pages_total=0, progress=0, chapters_done=0, chapters_total=0, chapter_urls=NULL, updated_at=$t, position=$p WHERE id=$id",
                         ("$s", status.ToString()), ("$t", Now()), ("$p", NextPosition()), ("$id", existing.Id));
                     return Get(existing.Id);
                 }
@@ -202,6 +213,36 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                     ("$t", Now()), ("$p", NextPosition()), ("$src", source));
 
                 return Get(Scalar<long>("SELECT last_insert_rowid()"));
+            }
+        }
+
+        public bool EnqueueSelected(string url, string title, IEnumerable<string> chapterUrls, string source = null)
+        {
+            lock (gate)
+            {
+                var existing = Query("SELECT * FROM queue WHERE url_key=$k", Map(QueueFrom), ("$k", UrlKey(url))).FirstOrDefault();
+                if (existing != null && (existing.Status == QueueStatus.Queued || existing.Status == QueueStatus.Downloading)) return false;
+                var item = Enqueue(url, title, source);
+                Exec("UPDATE queue SET chapter_urls=$c WHERE id=$id", ("$c", JsonSerializer.Serialize(chapterUrls.ToList())), ("$id", item.Id));
+                return true;
+            }
+        }
+
+        public bool Retry(long id)
+        {
+            lock (gate)
+                return Exec("UPDATE queue SET status='Queued', error=NULL, pages_done=0, pages_total=0, progress=0, chapters_done=0, chapters_total=0, updated_at=$t, position=$p WHERE id=$id AND status IN ('Failed','Stopped','Completed')", ("$t", Now()), ("$p", NextPosition()), ("$id", id)) > 0;
+        }
+
+        public bool EnqueueIfNotActive(string url, string source = null)
+        {
+            lock (gate)
+            {
+                var existing = Query("SELECT * FROM queue WHERE url_key=$k", Map(QueueFrom), ("$k", UrlKey(url))).FirstOrDefault();
+                if (existing != null && (existing.Status == QueueStatus.Queued || existing.Status == QueueStatus.Downloading))
+                    return false;
+                Enqueue(url, source: source);
+                return true;
             }
         }
 
@@ -311,11 +352,11 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
                 return Query("SELECT * FROM tracked ORDER BY title COLLATE NOCASE, id", Map(TrackedFrom));
         }
 
-        public void UpdateTracked(long id, IEnumerable<string> knownChapters, int newCount, string error, string title = null)
+        public void UpdateTracked(long id, IEnumerable<string> knownChapters, int newCount, string error, string title = null, IEnumerable<string> newChapters = null)
         {
             lock (gate)
-                Exec("UPDATE tracked SET chapters=COALESCE($c, chapters), new_count=$n, last_checked=$t, last_error=$e, title=COALESCE($title, title) WHERE id=$id",
-                    ("$c", knownChapters == null ? null : JsonSerializer.Serialize(knownChapters.ToList())), ("$n", newCount), ("$t", Now()), ("$e", error), ("$title", title), ("$id", id));
+                Exec("UPDATE tracked SET chapters=COALESCE($c, chapters), new_count=$n, last_checked=$t, last_error=$e, title=COALESCE($title, title), new_chapter_urls=COALESCE($new, new_chapter_urls) WHERE id=$id",
+                    ("$c", knownChapters == null ? null : JsonSerializer.Serialize(knownChapters.ToList())), ("$n", newCount), ("$t", Now()), ("$e", error), ("$title", title), ("$new", newChapters == null ? null : JsonSerializer.Serialize(newChapters.ToList())), ("$id", id));
         }
 
         public void SetAutoDownload(long id, bool enabled)
@@ -402,6 +443,7 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
             ChaptersTotal = r.GetInt32(r.GetOrdinal("chapters_total")),
             Error = Str(r, "error"),
             Outputs = StringList(Str(r, "outputs")),
+            ChapterUrls = Str(r, "chapter_urls") == null ? null : StringList(Str(r, "chapter_urls")),
             AddedAt = Date(r, "added_at"),
             UpdatedAt = Date(r, "updated_at"),
             Position = r.GetInt64(r.GetOrdinal("position")),
@@ -428,6 +470,7 @@ INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1');");
             KnownChapters = StringList(Str(r, "chapters")),
             LastChecked = Str(r, "last_checked") == null ? (DateTime?)null : Date(r, "last_checked"),
             NewCount = r.GetInt32(r.GetOrdinal("new_count")),
+            NewChapterUrls = StringList(Str(r, "new_chapter_urls")),
             AutoDownload = r.GetInt32(r.GetOrdinal("auto_download")) != 0,
             LastError = Str(r, "last_error"),
         };

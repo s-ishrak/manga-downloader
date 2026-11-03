@@ -5,6 +5,7 @@
     <TargetFramework>net5.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>Manga Downloader</AssemblyName>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <RootNamespace>MangaDownloader.Launcher</RootNamespace>
   </PropertyGroup>
 

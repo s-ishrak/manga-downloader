@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>manga-downloader</title>
+<title>Manga Downloader</title>
 <script>
   // Apply the saved theme before the page paints to avoid a light/dark flash.
   (() => {
@@ -77,7 +77,7 @@
   .Completed { color: var(--ok); } .Failed { color: var(--bad); } .Downloading { color: var(--accent); } .Queued { color: var(--muted); } .Stopped { color: var(--warn); }
   .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 6px; grid-column: 1 / -1; }
   .bar > div { height: 100%; background: var(--accent); transition: width .3s; }
-  .err { color: var(--bad); font-size: 13px; overflow-wrap: anywhere; grid-column: 1 / -1; }
+  .err { white-space: pre-line; color: var(--bad); font-size: 13px; overflow-wrap: anywhere; grid-column: 1 / -1; }
   .actions { display: flex; gap: 6px; align-items: center; }
   .empty { padding: 28px 14px; text-align: center; color: var(--muted); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
@@ -92,6 +92,13 @@
   .banner { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--bad); border-radius: 12px; color: var(--bad); background: var(--panel); font-size: 14px; }
   button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
   body.dropping .wrap { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: 12px; }
+  .advanced { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; }
+  .advanced .form { padding: 12px 0; }
+  dialog { color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: min(680px, 95vw); max-height: 85vh; }
+  dialog::backdrop { background: #0008; }
+  #chapterList { max-height: 45vh; overflow-y: auto; display: grid; gap: 6px; padding: 10px 0; }
+  #chapterList label { display: flex; align-items: baseline; gap: 8px; }
+  .phone-qr { width: 180px; height: 180px; image-rendering: pixelated; background: white; }
   @media (max-width: 560px) {
     .wrap { padding: 12px 10px 10px; }
     .item { grid-template-columns: 1fr; } .actions { justify-content: flex-start; }
@@ -102,7 +109,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>manga-downloader</h1>
+    <h1>Manga Downloader</h1>
     <span id="runner" class="chip"><i></i><span id="runnerText">connecting…</span></span>
     <span class="spacer"></span>
     <label class="sub" for="concurrency">Downloads at once</label>
@@ -123,17 +130,18 @@
     </div>
   </section>
 
-  <section class="card add">
+  <details class="card add" open><summary>Add links</summary>
     <textarea id="urls" placeholder="Paste gallery or series URLs, one per line (Ctrl+Enter adds them to the queue)" aria-label="URLs to download"></textarea>
     <div class="row">
       <button id="addBtn" class="primary">Add to queue</button>
       <button id="trackBtn">Track as series</button>
       <label class="sub"><input type="checkbox" id="autoDl"> download new chapters automatically</label>
     </div>
+    <div class="err" id="addErrors" role="status"></div>
     <div class="sub" id="saveSummary" hidden>Saving to <span id="sumPath"></span> as <span id="sumFormat"></span> · <a id="sumChange" href="#settings">change</a></div>
-  </section>
+  </details>
 
-  <nav id="tabs">
+  <nav id="tabs" role="tablist" aria-label="Sections">
     <button data-tab="queue" class="on">Queue<span class="count" id="nQueue"></span></button>
     <button data-tab="history">History<span class="count" id="nHistory"></span></button>
     <button data-tab="tracked">Tracked series<span class="count" id="nTracked"></span></button>
@@ -148,39 +156,43 @@
     </label>
   </nav>
 
-  <section class="card" id="panel-queue"><div class="list" id="queue"></div>
+  <section class="card" id="panel-queue"><div class="tools"><input id="queueSearch" type="text" placeholder="Search queue" aria-label="Search queue"><select id="queueStatus" aria-label="Queue status"><option value="">All statuses</option><option>Queued</option><option>Downloading</option><option>Failed</option><option>Stopped</option></select><button class="small" id="retryFailed">Retry failed</button><button class="small" id="clearCompleted">Clear completed</button></div><div class="list" id="queue"></div>
     <div class="tools">
-      <span class="spacer"></span>
+      <details><summary>Import a queue…</summary><div class="row">
       <input type="text" id="importPath" size="34" placeholder="Path to queue.manga" aria-label="Path to a HDoujin queue.manga file">
       <button class="small" id="importBtn">Import</button>
       <button class="small" id="importPick" title="You can also drop a queue.manga file anywhere on this page">Choose file…</button>
       <input type="file" id="importFile" accept=".manga,.txt" multiple hidden>
+      </div></details>
     </div>
   </section>
-  <section class="card" id="panel-history" hidden><div class="list" id="history"></div>
+  <section class="card" id="panel-history" hidden><div class="tools"><input id="historySearch" type="text" placeholder="Search history" aria-label="Search history"><select id="historyStatus" aria-label="History status"><option value="">All statuses</option><option>Completed</option><option>Failed</option><option>Stopped</option></select></div><div class="list" id="history"></div>
     <div class="tools"><button class="small danger" id="clearHistory">Clear history</button></div>
   </section>
   <section class="card" id="panel-tracked" hidden><div class="list" id="tracked"></div>
     <div class="tools"><button class="small" id="checkAll">Check all now</button></div>
   </section>
   <section class="card" id="panel-sites" hidden>
+    <div class="tools"><input type="url" id="newSiteLink" size="50" placeholder="Paste a series or chapter link" aria-label="Series or chapter link"><button id="addSite">Add site</button></div>
+    <p class="sub" id="addSiteNote">Detects common HTML reader layouts without an LLM. A chapter link works best; some sites need a custom module.</p>
     <div class="tools"><input type="text" id="siteFilter" size="30" placeholder="Filter sites" aria-label="Filter supported sites"><span class="sub" id="siteCount"></span></div>
     <div class="list" id="sites"></div>
   </section>
   <section class="card" id="panel-settings" hidden>
     <form id="settings" class="form" novalidate>
       <label for="sOut">Save to</label>
-      <input type="text" id="sOut" name="outputDirectory" placeholder="Output folder">
+      <span class="row"><input type="text" id="sOut" name="outputDirectory" placeholder="Output folder"><button type="button" id="chooseFolder" class="small">Choose folder…</button></span>
       <label for="sFormat">Save as</label>
       <select id="sFormat" name="format">
         <option value="cbz">CBZ (comic archive)</option><option value="zip">ZIP</option><option value="pdf">PDF</option><option value="folder">Folder of images</option>
       </select>
+      <details class="advanced"><summary>Advanced settings</summary><div class="form">
       <label for="sParallel">Pages at once</label>
       <span><input type="number" id="sParallel" name="parallel" min="1" step="1"> <span class="sub">per download</span></span>
       <label for="sRetry">Retries per page</label>
       <input type="number" id="sRetry" name="retry" min="0" step="1">
       <label for="sDelay">Delay between pages</label>
-      <span><input type="number" id="sDelay" name="delayMilliseconds" min="0" step="100"> <span class="sub">ms</span></span>
+      <span><input type="number" id="sDelay" name="delayMilliseconds" min="0" step="1"> <span class="sub">ms</span></span>
       <span></span>
       <label class="check"><input type="checkbox" id="sCombine" name="combineChapters"> Multiple chapters: pack into a single file (otherwise one file per chapter)</label>
       <span></span>
@@ -188,15 +200,31 @@
       <span></span>
       <label class="check"><input type="checkbox" id="sOverwrite" name="overwrite"> Download again even if the file already exists</label>
       <label for="sCheck">Check tracked series</label>
-      <span>every <input type="number" id="sCheck" name="checkEveryMinutes" min="0" step="5"> <span class="sub">minutes (0 = only when you click Check)</span></span>
+      <span>every <input type="number" id="sCheck" name="checkEveryMinutes" min="0" max="10080" step="1"> <span class="sub">minutes (0 = only when you click Check)</span></span>
+      </div></details>
     </form>
     <div class="tools">
       <button class="small primary" id="settingsSave">Save settings</button>
       <button class="small" id="settingsRevert">Undo changes</button>
       <span class="sub" id="settingsNote"></span>
     </div>
+    <div class="tools">
+      <strong>Send from phone</strong>
+      <button class="small" id="phoneToggle">Enable phone links</button>
+      <span class="sub">Connect your phone to the same trusted Wi-Fi as this PC. Keep the app running. Uses local HTTP.</span>
+      <div id="phoneLinks" style="width:100%;overflow-wrap:anywhere"></div>
+      <span class="sub" id="phoneHelp" hidden>Open a private link above on your phone and bookmark it, then paste links to send to this queue. Keep it private. If Windows Firewall asks, allow access on private networks. If it does not connect, check that both devices use the same network and that your router permits connections between them. Access turns off when the app closes; enabling it again creates a new link.</span>
+    </div>
   </section>
 </div>
+<dialog id="chapterDialog" aria-labelledby="chapterTitle">
+  <h2 id="chapterTitle">Series chapters</h2>
+  <p class="sub">Choose chapters to download. “New” means chapters found by the latest check. Selected chapters are saved separately, even when combined archives are enabled.</p>
+  <div class="row"><button type="button" id="chapAll">All</button><button type="button" id="chapNew">New</button><button type="button" id="chapNone">None</button>
+    <label>From <input type="number" id="chapFrom" min="1" step="1"></label><label>to <input type="number" id="chapTo" min="1" step="1"></label><button type="button" id="chapRange">Select range</button></div>
+  <div id="chapterList"></div><div id="chapterError" class="err" role="status"></div>
+  <div class="row"><button type="button" id="chapDownload" class="primary">Add selected to queue</button><button type="button" id="chapClose">Close</button></div>
+</dialog>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -260,6 +288,12 @@ function progressText(q) {
   return parts.join(' · ');
 }
 
+function errorDetails(message, url) {
+  const safeUrl = /^https?:\/\//i.test(url || '') ? url : null;
+  return el('details', { class: 'err' }, el('summary', { text: 'Download needs attention — view details' }),
+    el('div', { text: message }), safeUrl ? el('a', { href: safeUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Open page in browser' }) : null);
+}
+
 function queueRow(q) {
   const pct = q.status === 'Completed' ? 100 : Math.floor((q.progress || 0) / 10);
   const acts = el('div', { class: 'actions' });
@@ -268,9 +302,9 @@ function queueRow(q) {
   if (q.status !== 'Downloading') acts.append(el('button', { class: 'small danger', text: 'Remove', onclick: () => act('/api/queue/' + q.id + '/remove') }));
   const row = el('div', { class: 'item' },
     el('div', {}, el('div', { class: 'title', text: q.title || q.url }), el('div', { class: 'sub', text: [host(q.url), progressText(q)].filter(Boolean).join(' · ') })),
-    el('div', { class: 'actions' }, el('span', { class: 'status ' + q.status, text: q.status }), acts));
+    el('div', { class: 'actions' }, el('span', { class: 'status ' + q.status, text: q.packagingFormat ? 'Creating ' + q.packagingFormat + '…' : q.status }), acts));
   if (q.status === 'Downloading' || (q.status !== 'Completed' && q.progress > 0)) row.append(el('div', { class: 'bar' }, el('div', { style: 'width:' + pct + '%' })));
-  if (q.error && q.status !== 'Completed') row.append(el('div', { class: 'err', text: q.error }));
+  if (q.error && q.status !== 'Completed') row.append(errorDetails(q.error, q.url));
   if (q.status === 'Completed' && q.outputs && q.outputs.length) row.append(el('div', { class: 'sub', style: 'grid-column:1/-1', text: q.outputs.join('  ·  ') }));
   return row;
 }
@@ -279,8 +313,8 @@ function historyRow(h) {
   return el('div', { class: 'item' },
     el('div', {}, el('div', { class: 'title', text: h.title || h.url }), el('div', { class: 'sub', text: host(h.url) + ' · ' + h.pages + ' pages · ' + ago(h.finishedAt) })),
     el('span', { class: 'status ' + h.status, text: h.status }),
-    h.error ? el('div', { class: 'err', text: h.error }) : null,
-    h.outputs && h.outputs.length ? el('div', { class: 'sub', style: 'grid-column:1/-1', text: h.outputs.join('  ·  ') }) : null);
+    h.error ? errorDetails(h.error, h.url) : null,
+    h.outputs && h.outputs.length ? el('div', { class: 'sub', style: 'grid-column:1/-1' }, ...h.outputs.map((path, index) => el('div', {}, path + ' ', ...(h.status === 'Completed' ? [el('button', { class: 'small', text: 'Open file', onclick: () => act('/api/history/' + h.id + '/open', { index }) }), ' ', el('button', { class: 'small', text: 'Show in folder', onclick: () => act('/api/history/' + h.id + '/show', { index }) })] : [])))) : null);
 }
 
 function trackedRow(t) {
@@ -289,18 +323,34 @@ function trackedRow(t) {
     el('div', {}, el('div', { class: 'title', text: t.title || t.url }),
       el('div', { class: 'sub', text: host(t.url) + ' · ' + t.chapters + ' chapters known · checked ' + (t.checking ? 'now…' : ago(t.lastChecked)) })),
     el('div', { class: 'actions' }, flag,
-      el('label', { class: 'sub' }, el('input', { type: 'checkbox', ...(t.autoDownload ? { checked: '' } : {}), onchange: e => act('/api/track/' + t.id + '/auto', { enabled: e.target.checked }) }), ' auto'),
+      el('label', { class: 'sub' }, el('input', { type: 'checkbox', ...(t.autoDownload ? { checked: '' } : {}), onchange: e => act('/api/track/' + t.id + '/auto', { enabled: e.target.checked }) }), ' Download new chapters automatically'),
       el('button', { class: 'small', text: 'Check', onclick: () => act('/api/track/' + t.id + '/check', {}, 'Checking…') }),
-      el('button', { class: 'small', text: 'Download', onclick: () => act('/api/queue', { urls: t.url }, 'Queued') }),
+      el('button', { class: 'small', text: 'Chapters…', onclick: () => showChapters(t) }),
+      el('button', { class: 'small', text: 'Download all', onclick: () => act('/api/queue', { urls: t.url }, 'Queued') }),
       el('button', { class: 'small danger', text: 'Stop tracking', onclick: () => act('/api/track/' + t.id + '/remove') })));
-  if (t.lastError) row.append(el('div', { class: 'err', text: t.lastError }));
+  if (t.lastError) row.append(errorDetails(t.lastError, t.url));
   return row;
 }
 
 function fill(id, items, make, emptyText) {
-  const box = $(id); box.replaceChildren();
-  if (!items.length) box.append(el('div', { class: 'empty', text: emptyText }));
-  else for (const i of items) box.append(make(i));
+  const box = $(id), selection = window.getSelection(), scroll = box.scrollTop;
+  const existing = new Map([...box.children].map(row => [row.dataset.key, row]));
+  const rows = items.length ? items.map(item => ({ key: String(item.id ?? item.domain), item })) : [{ key: '__empty__', item: null }];
+  const keep = new Set();
+  rows.forEach(({ key, item }, index) => {
+    keep.add(key);
+    let row = existing.get(key), signature = item == null ? emptyText : JSON.stringify(item);
+    const interacting = row && (row.contains(document.activeElement) || (selection && !selection.isCollapsed && row.contains(selection.anchorNode)));
+    if (!row || (row.dataset.signature !== signature && !interacting)) {
+      const next = item == null ? el('div', { class: 'empty', text: emptyText }) : make(item);
+      next.dataset.key = key; next.dataset.signature = signature;
+      if (row) row.replaceWith(next);
+      row = next;
+    }
+    if (box.children[index] !== row) box.insertBefore(row, box.children[index] || null);
+  });
+  for (const row of [...box.children]) if (!keep.has(row.dataset.key)) row.remove();
+  box.scrollTop = scroll;
 }
 
 function renderVerification() {
@@ -331,8 +381,9 @@ function render() {
   $('nQueue').textContent = state.queue.length ? ' ' + state.queue.length + (active ? ' (' + active + ' active)' : '') : '';
   $('nHistory').textContent = state.history.length ? ' ' + state.history.length : '';
   $('nTracked').textContent = state.tracked.length ? ' ' + state.tracked.length : '';
-  fill('queue', state.queue, queueRow, 'The queue is empty. Paste a URL above.');
-  fill('history', state.history, historyRow, 'Nothing downloaded yet.');
+  const filtered = (items, prefix) => items.filter(x => (!$(prefix + 'Status').value || x.status === $(prefix + 'Status').value) && ((x.title || '') + ' ' + x.url).toLowerCase().includes($(prefix + 'Search').value.trim().toLowerCase()));
+  fill('queue', filtered(state.queue, 'queue'), queueRow, 'No matching queue items.');
+  fill('history', filtered(state.history, 'history'), historyRow, 'No matching history items.');
   fill('tracked', state.tracked, trackedRow, 'No tracked series. Paste a series URL and choose “Track as series”.');
 }
 
@@ -342,13 +393,26 @@ let settingsDirty = false;
 
 // The form is filled from the server until you start editing it, so polling never overwrites what you typed.
 function renderSettings() {
+  const phone = state.phone;
+  $('phoneToggle').textContent = phone.enabled ? 'Disable phone links' : 'Enable phone links';
+  $('phoneHelp').hidden = !phone.enabled;
+  const phoneKey = JSON.stringify(phone);
+  if ($('phoneLinks').dataset.key !== phoneKey) { $('phoneLinks').dataset.key = phoneKey;
+    $('phoneLinks').replaceChildren(...phone.urls.map((url, i) => {
+      const canvas = el('canvas', { class: 'phone-qr', role: 'img', 'aria-label': 'QR code for phone link' });
+      const matrix = phone.qrCodes[i], context = canvas.getContext('2d'); canvas.width = canvas.height = matrix.length;
+      context.fillStyle = '#fff'; context.fillRect(0, 0, matrix.length, matrix.length); context.fillStyle = '#000';
+      matrix.forEach((row, y) => row.forEach((on, x) => { if (on) context.fillRect(x, y, 1, 1); }));
+      return el('div', {}, canvas, el('div', {}, el('a', { href: url, text: url }), ' ', el('button', { class: 'small', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast('Select and copy the link.'); } } })));
+    }));
+    if (phone.enabled && !phone.urls.length) $('phoneLinks').textContent = 'No network address found. Connect this PC to Wi-Fi, then disable and enable phone links.'; }
   const s = state.settings;
   $('saveSummary').hidden = !s;
   document.querySelector('#tabs [data-tab=settings]').hidden = !s;
   if (!s) return;
   $('sumPath').textContent = state.outputDirectory;
   $('sumFormat').textContent = FORMAT_NAMES[s.format] || s.format;
-  $('settingsNote').textContent = 'Applies to downloads that start after saving' + (s.saved ? '; kept for next time.' : ' (this run only).');
+  $('settingsNote').textContent = (settingsDirty ? 'Unsaved changes. ' : '') + 'Applies to downloads that start after saving' + (s.saved ? '; kept for next time.' : ' (this run only).');
   if (settingsDirty) return;
   const f = $('settings').elements;
   f.outputDirectory.value = state.outputDirectory;
@@ -363,10 +427,11 @@ function renderSettings() {
 async function saveSettings() {
   const s = state && state.settings; if (!s) return;
   const f = $('settings').elements, body = {};
+  if (!f.outputDirectory.value.trim()) { f.outputDirectory.focus(); return toast('Enter a folder in Save to.'); }
   if (f.outputDirectory.value.trim() !== state.outputDirectory) body.outputDirectory = f.outputDirectory.value;
   if (f.format.value !== s.format) body.format = f.format.value;
   for (const n of NUMBER_SETTINGS) {
-    if (f[n].value === '') return toast('Fill in every number.');
+    if (!f[n].checkValidity() || f[n].value === '') { f[n].closest('details').open = true; f[n].focus(); if (f[n].value === '') return toast('Enter a value for ' + document.querySelector('label[for=' + f[n].id + ']').textContent + '.'); f[n].reportValidity(); return; }
     if (Number(f[n].value) !== s[n]) body[n] = Number(f[n].value);
   }
   if (f.keepImages.checked !== s.keepImages) body.keepImages = f.keepImages.checked;
@@ -379,12 +444,12 @@ async function saveSettings() {
 
 function showTab(name) {
   tab = name;
-  for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x.dataset.tab === name);
+  for (const x of document.querySelectorAll('#tabs button')) { const selected = x.dataset.tab === name; x.classList.toggle('on', selected); x.setAttribute('role', 'tab'); x.setAttribute('aria-selected', selected); x.tabIndex = selected ? 0 : -1; }
   for (const t of ['queue', 'history', 'tracked', 'sites', 'settings']) $('panel-' + t).hidden = t !== name;
   if (name === 'sites' && !sites) loadSites();
 }
 
-// The module list never changes while running, so it is fetched once, when the tab is first opened.
+// Refresh the list after adding a site.
 let sites = null;
 async function loadSites() {
   try { sites = await api('/api/sites'); renderSites(); }
@@ -404,6 +469,16 @@ function renderSites() {
   }, 'No sites loaded.');
 }
 $('siteFilter').addEventListener('input', () => { if (sites) renderSites(); });
+$('addSite').addEventListener('click', async () => {
+  const button = $('addSite'), note = $('addSiteNote');
+  button.disabled = true; note.textContent = 'Checking the link…';
+  try {
+    const result = await api('/api/sites/add', { url: $('newSiteLink').value.trim() });
+    note.textContent = `Site added. Found ${result.pages} images in the sample chapter and ${result.chapters} chapter links. Check the first download before relying on this site.`;
+    await loadSites();
+  } catch (e) { note.textContent = e.message; }
+  finally { button.disabled = false; }
+});
 
 // While the server cannot be reached, say so and disable every control (tabs stay usable); polling carries on and undoes it.
 let offline = null;
@@ -418,29 +493,80 @@ function setOffline(kind) {
   if (kind) { $('runnerText').textContent = 'disconnected'; $('runner').className = 'chip'; }
 }
 
+let refreshing = false;
 async function refresh() {
+  if (refreshing) return; refreshing = true;
   try { state = await api('/api/state'); setOffline(null); render(); }
   catch (e) { setOffline(e.status === 401 || e.status === 403 ? 'auth' : 'down'); }
+  finally { refreshing = false; }
 }
 
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab);
 });
 $('sumChange').onclick = e => { e.preventDefault(); showTab('settings'); $('sOut').focus(); };
-$('settings').addEventListener('input', () => { settingsDirty = true; });
+$('settings').addEventListener('input', () => { settingsDirty = true; $('settingsNote').textContent = 'Unsaved changes.'; });
 $('settings').addEventListener('submit', e => { e.preventDefault(); saveSettings(); });
 $('settings').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); saveSettings(); } });
 $('settingsSave').onclick = saveSettings;
+$('chooseFolder').onclick = async () => {
+  $('chooseFolder').disabled = true;
+  try { const result = await api('/api/settings/choose-folder', {}); if (result.path) { $('sOut').value = result.path; settingsDirty = true; $('settingsNote').textContent = 'Unsaved changes.'; } }
+  catch (e) { toast(e.message); } finally { $('chooseFolder').disabled = false; }
+};
+let chapterSeries = null, chapterData = [];
+async function showChapters(series) {
+  chapterSeries = series; chapterData = []; $('chapterTitle').textContent = series.title || series.url;
+  $('chapterList').textContent = 'Loading chapters…'; $('chapterError').textContent = ''; $('chapDownload').disabled = true;
+  $('chapterDialog').showModal();
+  try {
+    const data = await api('/api/track/' + series.id + '/chapters', {}); chapterData = data.chapters;
+    $('chapterList').replaceChildren(...chapterData.map((chapter, i) => el('label', {}, el('input', { type: 'checkbox', value: i }), (i + 1) + '. ' + (chapter.title || chapter.url) + (chapter.isNew ? ' (new)' : ''))));
+    if (!chapterData.length) $('chapterList').textContent = 'No chapters found.';
+    $('chapFrom').max = $('chapTo').max = chapterData.length; $('chapFrom').value = 1; $('chapTo').value = chapterData.length;
+    $('chapDownload').disabled = !chapterData.length;
+  } catch (e) { $('chapterError').textContent = e.message; }
+}
+function selectChapters(test) { for (const input of $('chapterList').querySelectorAll('input')) input.checked = test(Number(input.value)); }
+$('chapAll').onclick = () => selectChapters(() => true);
+$('chapNew').onclick = () => selectChapters(i => chapterData[i].isNew);
+$('chapNone').onclick = () => selectChapters(() => false);
+$('chapRange').onclick = () => { const from = Number($('chapFrom').value), to = Number($('chapTo').value); if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to > chapterData.length || from > to) { $('chapterError').textContent = 'Enter a valid chapter range.'; return; } $('chapterError').textContent = ''; selectChapters(i => i + 1 >= from && i + 1 <= to); };
+$('chapClose').onclick = () => $('chapterDialog').close();
+$('chapDownload').onclick = async () => {
+  const urls = [...$('chapterList').querySelectorAll('input:checked')].map(input => chapterData[Number(input.value)].url);
+  if (!urls.length) { $('chapterError').textContent = 'Select at least one chapter.'; return; }
+  $('chapDownload').disabled = true;
+  try { const result = await api('/api/track/' + chapterSeries.id + '/download-selected', { urls }); $('chapterDialog').close(); toast(result.added + ' chapters added to queue'); refresh(); }
+  catch (e) { $('chapterError').textContent = e.message; } finally { $('chapDownload').disabled = false; }
+};
+$('phoneToggle').onclick = async () => {
+  $('phoneToggle').disabled = true;
+  try { await api('/api/phone', { enabled: !state.phone.enabled }); await refresh(); }
+  catch (error) { toast(error.message); }
+  finally { $('phoneToggle').disabled = false; }
+};
 $('settingsRevert').onclick = () => { settingsDirty = false; render(); };
-$('addBtn').onclick = async () => { const d = await act('/api/queue', { urls: $('urls').value }, 'Added to queue'); if (d) $('urls').value = ''; };
+$('addBtn').onclick = async () => {
+  $('addBtn').disabled = $('trackBtn').disabled = true; $('addErrors').textContent = '';
+  try { const d = await api('/api/queue', { urls: $('urls').value });
+    $('urls').value = d.rejected.map(x => x.url).join('\n');
+    $('addErrors').textContent = d.rejected.map(x => x.url + ': ' + x.error).join('\n');
+    toast(d.added + ' added, ' + d.alreadyQueued + ' already queued' + (d.rejected.length ? ', ' + d.rejected.length + ' rejected' : '')); refresh();
+  } catch (e) { $('addErrors').textContent = e.message; }
+  finally { $('addBtn').disabled = $('trackBtn').disabled = false; }
+};
 $('trackBtn').onclick = async () => {
   const urls = $('urls').value.split(/\s+/).filter(Boolean);
   if (!urls.length) return toast('Paste a series URL first.');
+  $('addBtn').disabled = $('trackBtn').disabled = true;
   toast('Reading chapter list…', 60000);
   // Failed URLs stay in the box so they can be fixed; the toast sums up instead of each error replacing the last.
   const failed = [];
   for (const url of urls) { try { await api('/api/track', { url, autoDownload: $('autoDl').checked }); } catch (e) { failed.push({ url, error: e.message }); } }
   $('urls').value = failed.map(f => f.url).join('\n');
+  $('addBtn').disabled = $('trackBtn').disabled = false;
+  $('addErrors').textContent = failed.map(f => f.url + ': ' + f.error).join('\n');
   const ok = urls.length - failed.length;
   if (ok) refresh();
   if (!failed.length) return toast('Tracking ' + ok + ' series');
@@ -452,7 +578,12 @@ $('pauseBtn').onclick = () => act('/api/runner/' + (state && state.runner.paused
 $('concurrency').onchange = e => act('/api/runner/concurrency', { count: Number(e.target.value) });
 $('verifySend').onclick = () => act('/api/verify', { text: $('verifyText').value }, 'Thanks, continuing…');
 $('verifyCancel').onclick = () => act('/api/verify/cancel', {}, 'Check cancelled');
-$('clearHistory').onclick = () => act('/api/history/clear');
+$('clearHistory').onclick = () => { if (confirm('Clear all download history? This cannot be undone.')) act('/api/history/clear'); };
+$('clearCompleted').onclick = () => { if (confirm('Clear completed queue items?')) act('/api/queue/clear-completed'); };
+$('retryFailed').onclick = async () => { $('retryFailed').disabled = true; try { const failed = state.queue.filter(q => q.status === 'Failed'); for (const q of failed) await api('/api/queue/' + q.id + '/retry', {}); toast(failed.length + ' retried'); refresh(); } catch (e) { toast(e.message); } finally { $('retryFailed').disabled = false; } };
+for (const id of ['queueSearch', 'queueStatus', 'historySearch', 'historyStatus']) $(id).addEventListener('input', render);
+$('tabs').addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return; const tabs = [...document.querySelectorAll('#tabs button:not([hidden])')]; let i = tabs.indexOf(document.activeElement); if (i < 0) return; e.preventDefault(); i = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; showTab(tabs[i].dataset.tab); tabs[i].focus(); });
+showTab('queue');
 $('checkAll').onclick = () => act('/api/track/check-all', {}, 'Checking all…');
 function imported(d, name) { if (d) toast((name ? name + ': imported ' : 'Imported ') + d.added + ' (' + d.alreadyPresent + ' already queued)'); }
 $('importBtn').onclick = async () => imported(await act('/api/import', { path: $('importPath').value.trim() }));
