@@ -14,107 +14,949 @@
 <style>
   :root {
     color-scheme: light;
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2026; --muted: #667085; --line: #e3e6eb;
-    --accent: #3b5bdb; --accent-text: #ffffff; --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --track: #e9ecf1;
-    --shadow: 0 1px 2px rgba(16,24,40,.06);
+    --bg: #f8fafc;
+    --bg-subtle: #f1f5f9;
+    --panel: #ffffff;
+    --panel-hover: #f8fafc;
+    --panel-elevated: #ffffff;
+    --line: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --accent-soft: rgba(79, 70, 229, 0.08);
+    --accent-soft-hover: rgba(79, 70, 229, 0.16);
+    --accent-text: #ffffff;
+    --ok: #16a34a;
+    --ok-bg: #f0fdf4;
+    --ok-border: #bbf7d0;
+    --warn: #d97706;
+    --warn-bg: #fffbeb;
+    --warn-border: #fde68a;
+    --bad: #dc2626;
+    --bad-bg: #fef2f2;
+    --bad-border: #fecaca;
+    --track: #e2e8f0;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+    --card-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
       color-scheme: dark;
-      --bg: #14161a; --panel: #1c1f25; --text: #e8eaee; --muted: #9aa3b2; --line: #2b303a;
-      --accent: #748ffc; --accent-text: #11131a; --ok: #69db7c; --warn: #fcc419; --bad: #ff8787; --track: #2b303a;
-      --shadow: none;
+      --bg: #0b0f17;
+      --bg-subtle: #0f172a;
+      --panel: #131b2e;
+      --panel-hover: #1e293b;
+      --panel-elevated: #182238;
+      --line: #1e293b;
+      --border-strong: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.15);
+      --accent-soft-hover: rgba(99, 102, 241, 0.25);
+      --accent-text: #ffffff;
+      --ok: #4ade80;
+      --ok-bg: rgba(74, 222, 128, 0.12);
+      --ok-border: rgba(74, 222, 128, 0.3);
+      --warn: #fbbf24;
+      --warn-bg: rgba(251, 191, 36, 0.12);
+      --warn-border: rgba(251, 191, 36, 0.3);
+      --bad: #f87171;
+      --bad-bg: rgba(248, 113, 113, 0.12);
+      --bad-border: rgba(248, 113, 113, 0.3);
+      --track: #1e293b;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 10px 20px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+      --card-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #14161a; --panel: #1c1f25; --text: #e8eaee; --muted: #9aa3b2; --line: #2b303a;
-    --accent: #748ffc; --accent-text: #11131a; --ok: #69db7c; --warn: #fcc419; --bad: #ff8787; --track: #2b303a;
-    --shadow: none;
+    --bg: #0b0f17;
+    --bg-subtle: #0f172a;
+    --panel: #131b2e;
+    --panel-hover: #1e293b;
+    --panel-elevated: #182238;
+    --line: #1e293b;
+    --border-strong: #334155;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --accent-soft: rgba(99, 102, 241, 0.15);
+    --accent-soft-hover: rgba(99, 102, 241, 0.25);
+    --accent-text: #ffffff;
+    --ok: #4ade80;
+    --ok-bg: rgba(74, 222, 128, 0.12);
+    --ok-border: rgba(74, 222, 128, 0.3);
+    --warn: #fbbf24;
+    --warn-bg: rgba(251, 191, 36, 0.12);
+    --warn-border: rgba(251, 191, 36, 0.3);
+    --bad: #f87171;
+    --bad-bg: rgba(248, 113, 113, 0.12);
+    --bad-border: rgba(248, 113, 113, 0.3);
+    --track: #1e293b;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 20px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    --card-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .wrap { width: 100%; max-width: 1040px; height: 100dvh; min-height: 0; margin: 0 auto; padding: 20px 16px 16px; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-  h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    background-image: radial-gradient(ellipse 80% 50% at 50% -20%, var(--accent-soft), transparent 70%);
+    background-repeat: no-repeat;
+    color: var(--text);
+    font: 14.5px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 1060px;
+    height: 100dvh;
+    min-height: 0;
+    margin: 0 auto;
+    padding: 16px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.2s ease;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .brand-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    flex-shrink: 0;
+  }
+  h1 {
+    font-size: 19px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
   .spacer { flex: 1; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--track); font-size: 13px; color: var(--muted); }
-  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
-  .chip.run i { background: var(--ok); } .chip.paused i { background: var(--warn); }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
-  .add { padding: 14px; display: grid; gap: 10px; margin-bottom: 16px; }
-  .verify { padding: 14px; display: grid; gap: 10px; margin-bottom: 16px; border-color: var(--warn); }
-  .verify h2 { margin: 0; font-size: 16px; } .verify ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    transition: all 0.2s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  .chip i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    transition: all 0.2s ease;
+  }
+  .chip.run {
+    background: var(--ok-bg);
+    border-color: var(--ok-border);
+    color: var(--ok);
+  }
+  .chip.run i {
+    background: var(--ok);
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+    animation: pulse-ring 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  .chip.paused {
+    background: var(--warn-bg);
+    border-color: var(--warn-border);
+    color: var(--warn);
+  }
+  .chip.paused i {
+    background: var(--warn);
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }
+    70% { box-shadow: 0 0 0 7px rgba(74, 222, 128, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm), var(--card-highlight);
+  }
+  .add {
+    padding: 14px 16px;
+    display: grid;
+    gap: 10px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow-md), var(--card-highlight);
+  }
+  .add summary {
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    user-select: none;
+    color: var(--text);
+  }
+  .shortcut-hint {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  kbd {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--track);
+    border: 1px solid var(--line);
+    color: var(--text);
+  }
+  .destination-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
+    width: fit-content;
+  }
+  .path-chip {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 500;
+    max-width: 480px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: bottom;
+  }
+  .format-badge {
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--track);
+    color: var(--text);
+    font-size: 11px;
+    letter-spacing: .02em;
+  }
+  .verify {
+    padding: 16px;
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+    border-color: var(--warn-border);
+    background: var(--warn-bg);
+  }
+  .verify h2 { margin: 0; font-size: 16px; color: var(--warn); }
+  .verify ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 13.5px; }
   [hidden] { display: none !important; }
-  textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg); color: var(--text); font: inherit; }
-  select { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; }
-  input[type=text] { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); color: var(--text); font: inherit; min-width: 0; }
-  textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.45;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  select {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  input[type=text], input[type=url], input[type=password] {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 10px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 13.5px;
+    min-width: 0;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  textarea:focus, input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
-  button:hover { border-color: var(--muted); }
-  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
-  button.small { padding: 3px 9px; font-size: 13px; }
-  button.danger:hover { border-color: var(--bad); color: var(--bad); }
-  nav { display: flex; flex: none; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-  nav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
-  nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-  nav .count { color: var(--muted); font-weight: 400; margin-left: 4px; }
-  .theme { display: flex; align-items: center; gap: 6px; margin-left: auto; padding-left: 12px; color: var(--muted); font-size: 13px; white-space: nowrap; }
-  .theme select { padding: 3px 7px; }
-  .list { display: grid; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 13px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-shadow: var(--shadow-sm);
+    white-space: nowrap;
+  }
+  button:hover {
+    background: var(--panel-hover);
+    border-color: var(--border-strong);
+  }
+  button.primary {
+    background: linear-gradient(180deg, var(--accent) 0%, var(--accent-hover) 100%);
+    color: var(--accent-text);
+    border-color: transparent;
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  button.primary:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 3px 6px rgba(79, 70, 229, 0.4);
+  }
+  button.small { padding: 4px 10px; font-size: 12.5px; }
+  button.danger { color: var(--bad); }
+  button.danger:hover {
+    border-color: var(--bad-border);
+    background: var(--bad-bg);
+    color: var(--bad);
+  }
+  .icon-btn {
+    border: none;
+    background: transparent;
+    padding: 4px;
+    border-radius: 6px;
+    color: var(--muted);
+    box-shadow: none;
+  }
+  .icon-btn:hover {
+    background: var(--panel-hover);
+    color: var(--text);
+  }
+
+  /* Pill Navigation Bar */
+  nav {
+    display: flex;
+    flex: none;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 4px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow-x: auto;
+    align-items: center;
+  }
+  nav button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    padding: 6px 12px;
+    color: var(--muted);
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: none;
+    transition: all 0.15s ease;
+  }
+  nav button:hover {
+    color: var(--text);
+    background: var(--panel-hover);
+  }
+  nav button.on {
+    color: var(--accent);
+    background: var(--panel);
+    border-color: var(--line);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+  }
+  nav .count:not(:empty) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--track);
+    color: var(--muted);
+    margin-left: 4px;
+    min-width: 18px;
+    height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  nav button.on .count:not(:empty) {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .theme {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding: 0 8px;
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .theme select { padding: 4px 8px; font-size: 12.5px; }
+
+  /* Panels and Lists */
+  .list {
+    display: grid;
+    align-content: start;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
   [id^="panel-"] { flex: 1 1 auto; min-height: 0; overflow: hidden; }
   [id^="panel-"]:not(#panel-settings) { display: flex; flex-direction: column; }
   [id^="panel-"]:not(#panel-settings) > .list { flex: 1 1 auto; }
   #panel-settings { overflow-y: auto; overscroll-behavior: contain; }
-  .item { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: center; }
+
+  .item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 14px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    align-items: center;
+    transition: background 0.12s ease;
+  }
+  .item:hover { background: var(--panel-hover); }
   .item:first-child { border-top: none; }
-  .title { font-weight: 600; overflow-wrap: anywhere; }
+  .title { font-weight: 600; font-size: 14.5px; overflow-wrap: anywhere; }
   .sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   .sub a { color: inherit; }
-  .status { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-  .Completed { color: var(--ok); } .Failed { color: var(--bad); } .Downloading { color: var(--accent); } .Queued { color: var(--muted); } .Stopped { color: var(--warn); }
-  .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 6px; grid-column: 1 / -1; }
-  .bar > div { height: 100%; background: var(--accent); transition: width .3s; }
+  .host-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--line);
+    font-size: 11.5px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* Status Pills */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .status::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status.Completed {
+    background: var(--ok-bg);
+    color: var(--ok);
+    border-color: var(--ok-border);
+  }
+  .status.Downloading {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent-soft-hover);
+  }
+  .status.Downloading::before {
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7);
+    animation: pulse-ring 1.8s infinite;
+  }
+  .status.Queued {
+    background: var(--track);
+    color: var(--muted);
+    border-color: var(--line);
+  }
+  .status.Failed {
+    background: var(--bad-bg);
+    color: var(--bad);
+    border-color: var(--bad-border);
+  }
+  .status.Stopped {
+    background: var(--warn-bg);
+    color: var(--warn);
+    border-color: var(--warn-border);
+  }
+
+  /* Animated 8px Progress Bar */
+  .bar {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--track);
+    overflow: hidden;
+    margin-top: 6px;
+    grid-column: 1 / -1;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+  .bar > div {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent);
+    transition: width .3s ease;
+  }
+  .bar.active > div,
+  .item.is-downloading .bar > div {
+    background: linear-gradient(90deg, var(--accent) 0%, #818cf8 50%, var(--accent) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.8s infinite linear;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
   .err { white-space: pre-line; color: var(--bad); font-size: 13px; overflow-wrap: anywhere; grid-column: 1 / -1; }
   .actions { display: flex; gap: 6px; align-items: center; }
-  .empty { padding: 28px 14px; text-align: center; color: var(--muted); }
-  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
-  .toast.show { opacity: 1; }
-  .tools { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  input[type=number] { width: 7em; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--bg); color: var(--text); font: inherit; }
-  .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; padding: 16px 14px; }
-  .form > label:not(.check) { color: var(--muted); font-size: 14px; }
-  .form .check { display: flex; gap: 8px; align-items: center; }
-  .form select { justify-self: start; padding: 6px 8px; font-size: 15px; } .form input[type=text] { max-width: 640px; }
-  #saveSummary a { color: var(--accent); cursor: pointer; }
-  .banner { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--bad); border-radius: 12px; color: var(--bad); background: var(--panel); font-size: 14px; }
+  .item-side { display: flex; align-items: center; gap: 10px; }
+
+  /* Empty States */
+  .empty {
+    padding: 36px 16px;
+    text-align: center;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .empty-icon {
+    color: var(--muted);
+    opacity: 0.6;
+  }
+  .empty-text {
+    font-size: 14px;
+    max-width: 380px;
+    line-height: 1.45;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(10px);
+    background: var(--text);
+    color: var(--bg);
+    padding: 9px 18px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 500;
+    opacity: 0;
+    transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    max-width: 90vw;
+    box-shadow: var(--shadow-lg);
+    z-index: 9999;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  .tools {
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--panel);
+  }
+  .tools:first-child { border-top: none; }
+  input[type=number] {
+    width: 7.5em;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  #saveSummary a { color: var(--accent); cursor: pointer; text-decoration: none; font-weight: 500; }
+  #saveSummary a:hover { text-decoration: underline; }
+  .banner {
+    margin-bottom: 14px;
+    padding: 12px 16px;
+    border: 1px solid var(--bad-border);
+    border-radius: 12px;
+    color: var(--bad);
+    background: var(--bad-bg);
+    font-size: 14px;
+    box-shadow: var(--shadow-sm);
+  }
   button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
-  body.dropping .wrap { outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: 12px; }
-  .advanced { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; }
-  .advanced .form { padding: 12px 0; }
-  dialog { color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: min(680px, 95vw); max-height: 85vh; }
-  dialog::backdrop { background: #0008; }
-  #chapterList { max-height: 45vh; overflow-y: auto; display: grid; gap: 6px; padding: 10px 0; }
-  #chapterList label { display: flex; align-items: baseline; gap: 8px; }
-  .phone-qr { width: 180px; height: 180px; image-rendering: pixelated; background: white; }
-  @media (max-width: 560px) {
-    .wrap { padding: 12px 10px 10px; }
-    .item { grid-template-columns: 1fr; } .actions { justify-content: flex-start; }
-    .form { grid-template-columns: 1fr; gap: 4px; } .form > span:empty { display: none; } .form > label + * { margin-bottom: 8px; }
+
+  /* Drag and drop overlay */
+  body.dropping .wrap {
+    outline: 2px dashed var(--accent);
+    outline-offset: -6px;
+    border-radius: 16px;
+    position: relative;
+  }
+  body.dropping .wrap::after {
+    content: "Drop queue file (.manga / .txt) here to import";
+    position: absolute;
+    inset: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel);
+    opacity: 0.94;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--accent);
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Structured Settings Cards */
+  .settings-card {
+    padding: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-card:last-of-type { border-bottom: none; }
+  .settings-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+  .settings-card-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .form-grid {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 12px 16px;
+    align-items: baseline;
+    font-size: 14px;
+  }
+  .form-grid > label {
+    color: var(--muted);
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+  .check-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13.5px;
+  }
+  .hint {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .settings-sticky-bar {
+    position: sticky;
+    bottom: 0;
+    padding: 12px 16px;
+    background: var(--panel-elevated);
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.05);
+    z-index: 10;
+  }
+
+  /* Credentials */
+  .cred-container {
+    display: grid;
+    gap: 10px;
+  }
+  .cred-list {
+    display: grid;
+    gap: 6px;
+  }
+  .cred-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .cred-domain {
+    font-weight: 600;
+    font-size: 13.5px;
+    min-width: 150px;
+  }
+  .cred-user {
+    flex: 1;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .cred-add-box {
+    padding: 12px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: var(--bg-subtle);
+  }
+  .empty-cred {
+    padding: 10px 0;
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+  }
+
+  /* Phone Link Card */
+  .phone-qr-card {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin: 8px 12px 8px 0;
+    box-shadow: var(--shadow-sm);
+    color: #0f172a;
+  }
+  .phone-qr {
+    width: 170px;
+    height: 170px;
+    image-rendering: pixelated;
+    display: block;
+  }
+  .phone-link-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
+    text-align: center;
+  }
+  .phone-link-actions a {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    color: #4f46e5;
+  }
+
+  /* Chapter Dialog */
+  dialog {
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    width: min(720px, 95vw);
+    max-height: 85vh;
+    box-shadow: var(--shadow-lg);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .dialog-header {
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 16px 16px 0 0;
+  }
+  .dialog-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .chap-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 10px 0;
+  }
+  .chap-filter-bar input {
+    flex: 1;
+  }
+  .chap-toolbar {
+    gap: 6px;
+    font-size: 13px;
+  }
+  .range-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+  }
+  #chapterList {
+    flex: 1;
+    max-height: 48vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 16px;
+    display: grid;
+    gap: 4px;
+  }
+  .chap-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.1s ease;
+  }
+  .chap-item:hover { background: var(--panel-hover); }
+  .chap-num {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, monospace;
+    min-width: 28px;
+  }
+  .chap-name {
+    flex: 1;
+    overflow-wrap: anywhere;
+    font-size: 13.5px;
+  }
+  .dialog-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--line);
+    background: var(--bg-subtle);
+    border-radius: 0 0 16px 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .ok-badge {
+    background: var(--ok-bg);
+    color: var(--ok);
+    border: 1px solid var(--ok-border);
+  }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 10px 8px 8px; }
+    .item { grid-template-columns: 1fr; }
+    .actions { justify-content: flex-start; }
+    .form-grid { grid-template-columns: 1fr; gap: 6px; }
+    .range-group { margin-left: 0; }
   }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Manga Downloader</h1>
+    <div class="brand-group">
+      <svg class="brand-icon" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="header-brand-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--accent)" />
+            <stop offset="100%" stop-color="#818cf8" />
+          </linearGradient>
+        </defs>
+        <rect width="28" height="28" rx="7" fill="url(#header-brand-grad)" />
+        <path d="M7 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12.5a.5.5 0 0 1-.78.41L14 17.8l-4.22 3.11A.5.5 0 0 1 9 20.5V8z" fill="#fff" fill-opacity="0.9" />
+        <path d="M12 6h7a2 2 0 0 1 2 2v11.5a.5.5 0 0 1-.8.4L18 18.2V8a2 2 0 0 0-2-2z" fill="#fff" fill-opacity="0.45" />
+        <path d="M14 9.5v5m-2.5-2.5h5" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round" />
+      </svg>
+      <h1>Manga Downloader</h1>
+    </div>
     <span id="runner" class="chip"><i></i><span id="runnerText">connecting…</span></span>
     <span class="spacer"></span>
-    <label class="sub" for="concurrency">Downloads at once</label>
-    <select id="concurrency" aria-label="Number of downloads running at the same time"></select>
-    <button id="pauseBtn" class="small">Stop queue</button>
+    <div class="header-controls">
+      <label class="sub" for="concurrency">Downloads at once</label>
+      <select id="concurrency" aria-label="Number of downloads running at the same time"></select>
+      <button id="pauseBtn" class="small">Stop queue</button>
+    </div>
   </header>
 
   <div class="banner" id="offline" role="alert" hidden></div>
@@ -130,23 +972,48 @@
     </div>
   </section>
 
-  <details class="card add" open><summary>Add links</summary>
+  <details class="card add" open>
+    <summary>
+      <span>Add links</span>
+      <span class="shortcut-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+    </summary>
     <textarea id="urls" placeholder="Paste gallery or series URLs, one per line (Ctrl+Enter adds them to the queue)" aria-label="URLs to download"></textarea>
     <div class="row">
-      <button id="addBtn" class="primary">Add to queue</button>
+      <button id="addBtn" class="primary">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add to queue
+      </button>
+      <button id="chooseChapters" type="button">Choose chapters…</button>
       <button id="trackBtn">Track as series</button>
       <label class="sub"><input type="checkbox" id="autoDl"> download new chapters automatically</label>
     </div>
     <div class="err" id="addErrors" role="status"></div>
-    <div class="sub" id="saveSummary" hidden>Saving to <span id="sumPath"></span> as <span id="sumFormat"></span> · <a id="sumChange" href="#settings">change</a></div>
+    <div class="sub destination-bar" id="saveSummary" hidden>
+      Saving to <span id="sumPath" class="path-chip"></span> as <span id="sumFormat" class="format-badge"></span> · <a id="sumChange" href="#settings">change</a>
+    </div>
   </details>
 
   <nav id="tabs" role="tablist" aria-label="Sections">
-    <button data-tab="queue" class="on">Queue<span class="count" id="nQueue"></span></button>
-    <button data-tab="history">History<span class="count" id="nHistory"></span></button>
-    <button data-tab="tracked">Tracked series<span class="count" id="nTracked"></span></button>
-    <button data-tab="sites">Supported sites</button>
-    <button data-tab="settings">Settings</button>
+    <button data-tab="queue" class="on" role="tab" aria-selected="true" tabindex="0">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+      Queue<span class="count" id="nQueue"></span>
+    </button>
+    <button data-tab="history" role="tab" aria-selected="false" tabindex="-1">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      History<span class="count" id="nHistory"></span>
+    </button>
+    <button data-tab="tracked" role="tab" aria-selected="false" tabindex="-1">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+      Tracked series<span class="count" id="nTracked"></span>
+    </button>
+    <button data-tab="sites" role="tab" aria-selected="false" tabindex="-1">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+      Supported sites
+    </button>
+    <button data-tab="settings" role="tab" aria-selected="false" tabindex="-1">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      Settings
+    </button>
     <label class="theme" for="theme">Theme
       <select id="theme" aria-label="Color theme">
         <option value="system">System</option>
@@ -156,75 +1023,246 @@
     </label>
   </nav>
 
-  <section class="card" id="panel-queue"><div class="tools"><input id="queueSearch" type="text" placeholder="Search queue" aria-label="Search queue"><select id="queueStatus" aria-label="Queue status"><option value="">All statuses</option><option>Queued</option><option>Downloading</option><option>Failed</option><option>Stopped</option></select><button class="small" id="retryFailed">Retry failed</button><button class="small" id="clearCompleted">Clear completed</button></div><div class="list" id="queue"></div>
+  <section class="card" id="panel-queue">
     <div class="tools">
-      <details><summary>Import a queue…</summary><div class="row">
-      <input type="text" id="importPath" size="34" placeholder="Path to queue.manga" aria-label="Path to a HDoujin queue.manga file">
-      <button class="small" id="importBtn">Import</button>
-      <button class="small" id="importPick" title="You can also drop a queue.manga file anywhere on this page">Choose file…</button>
-      <input type="file" id="importFile" accept=".manga,.txt" multiple hidden>
-      </div></details>
+      <input id="queueSearch" type="text" placeholder="Search queue" aria-label="Search queue">
+      <select id="queueStatus" aria-label="Queue status">
+        <option value="">All statuses</option>
+        <option>Queued</option>
+        <option>Downloading</option>
+        <option>Failed</option>
+        <option>Stopped</option>
+      </select>
+      <button class="small" id="retryFailed">Retry failed</button>
+      <button class="small" id="clearCompleted">Clear completed</button>
+    </div>
+    <div class="list" id="queue"></div>
+    <div class="tools">
+      <details>
+        <summary>Import a queue…</summary>
+        <div class="row" style="margin-top:6px">
+          <input type="text" id="importPath" size="34" placeholder="Path to queue.manga" aria-label="Path to a HDoujin queue.manga file">
+          <button class="small" id="importBtn">Import</button>
+          <button class="small" id="importPick" title="You can also drop a queue.manga file anywhere on this page">Choose file…</button>
+          <input type="file" id="importFile" accept=".manga,.txt" multiple hidden>
+        </div>
+      </details>
     </div>
   </section>
-  <section class="card" id="panel-history" hidden><div class="tools"><input id="historySearch" type="text" placeholder="Search history" aria-label="Search history"><select id="historyStatus" aria-label="History status"><option value="">All statuses</option><option>Completed</option><option>Failed</option><option>Stopped</option></select></div><div class="list" id="history"></div>
-    <div class="tools"><button class="small danger" id="clearHistory">Clear history</button></div>
+
+  <section class="card" id="panel-history" hidden>
+    <div class="tools">
+      <input id="historySearch" type="text" placeholder="Search history" aria-label="Search history">
+      <select id="historyStatus" aria-label="History status">
+        <option value="">All statuses</option>
+        <option>Completed</option>
+        <option>Failed</option>
+        <option>Stopped</option>
+      </select>
+    </div>
+    <div class="list" id="history"></div>
+    <div class="tools">
+      <button class="small danger" id="clearHistory">Clear history</button>
+    </div>
   </section>
-  <section class="card" id="panel-tracked" hidden><div class="list" id="tracked"></div>
-    <div class="tools"><button class="small" id="checkAll">Check all now</button></div>
+
+  <section class="card" id="panel-tracked" hidden>
+    <div class="list" id="tracked"></div>
+    <div class="tools">
+      <button class="small" id="checkAll">Check all now</button>
+    </div>
   </section>
+
   <section class="card" id="panel-sites" hidden>
-    <div class="tools"><input type="url" id="newSiteLink" size="50" placeholder="Paste a series or chapter link" aria-label="Series or chapter link"><button id="addSite">Add site</button></div>
-    <p class="sub" id="addSiteNote">Detects common HTML reader layouts without an LLM. A chapter link works best; some sites need a custom module.</p>
-    <div class="tools"><input type="text" id="siteFilter" size="30" placeholder="Filter sites" aria-label="Filter supported sites"><span class="sub" id="siteCount"></span></div>
+    <div class="tools">
+      <input type="url" id="newSiteLink" size="46" placeholder="Paste a series or chapter link" aria-label="Series or chapter link">
+      <button id="addSite">Add site</button>
+      <button id="syncModules" title="Sync Lua scrapers from all module repositories">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        Sync modules
+      </button>
+    </div>
+    <p class="sub" id="addSiteNote" role="status" style="padding:0 16px; margin:4px 0 10px;">For sites missing from the list below. Detects common HTML reader layouts; a chapter link works best. Existing scrapers cannot be repaired here.</p>
+    <div class="tools">
+      <input type="text" id="siteFilter" size="30" placeholder="Filter sites" aria-label="Filter supported sites">
+      <span class="sub" id="siteCount"></span>
+    </div>
     <div class="list" id="sites"></div>
   </section>
+
   <section class="card" id="panel-settings" hidden>
-    <form id="settings" class="form" novalidate>
-      <label for="sOut">Save to</label>
-      <span class="row"><input type="text" id="sOut" name="outputDirectory" placeholder="Output folder"><button type="button" id="chooseFolder" class="small">Choose folder…</button></span>
-      <label for="sFormat">Save as</label>
-      <select id="sFormat" name="format">
-        <option value="cbz">CBZ (comic archive)</option><option value="zip">ZIP</option><option value="pdf">PDF</option><option value="folder">Folder of images</option>
-      </select>
-      <details class="advanced"><summary>Advanced settings</summary><div class="form">
-      <label for="sParallel">Pages at once</label>
-      <span><input type="number" id="sParallel" name="parallel" min="1" step="1"> <span class="sub">per download</span></span>
-      <label for="sRetry">Retries per page</label>
-      <input type="number" id="sRetry" name="retry" min="0" step="1">
-      <label for="sDelay">Delay between pages</label>
-      <span><input type="number" id="sDelay" name="delayMilliseconds" min="0" step="1"> <span class="sub">ms</span></span>
-      <span></span>
-      <label class="check"><input type="checkbox" id="sCombine" name="combineChapters"> Multiple chapters: pack into a single file (otherwise one file per chapter)</label>
-      <span></span>
-      <label class="check"><input type="checkbox" id="sKeep" name="keepImages"> Keep the image folder after packing</label>
-      <span></span>
-      <label class="check"><input type="checkbox" id="sOverwrite" name="overwrite"> Download again even if the file already exists</label>
-      <label for="sCheck">Check tracked series</label>
-      <span>every <input type="number" id="sCheck" name="checkEveryMinutes" min="0" max="10080" step="1"> <span class="sub">minutes (0 = only when you click Check)</span></span>
-      </div></details>
+    <form id="settings" novalidate>
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <h3>Output & Packaging</h3>
+        </div>
+        <div class="form-grid">
+          <label for="sOut">Save to</label>
+          <span class="row">
+            <input type="text" id="sOut" name="outputDirectory" placeholder="Output folder" style="max-width:540px; width:100%">
+            <button type="button" id="chooseFolder" class="small">Choose folder…</button>
+          </span>
+
+          <label for="sFormat">Save as</label>
+          <select id="sFormat" name="format">
+            <option value="cbz">CBZ (comic archive)</option>
+            <option value="zip">ZIP</option>
+            <option value="pdf">PDF</option>
+            <option value="folder">Folder of images</option>
+          </select>
+
+          <span></span>
+          <div class="check-col">
+            <label class="check"><input type="checkbox" id="sCombine" name="combineChapters"> Multiple chapters: pack into a single file (otherwise one file per chapter)</label>
+            <label class="check"><input type="checkbox" id="sKeep" name="keepImages"> Keep raw image folder after packing</label>
+            <label class="check"><input type="checkbox" id="sOverwrite" name="overwrite"> Download again even if the file already exists</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+          <h3>Performance & Automation</h3>
+        </div>
+        <div class="form-grid">
+          <label for="sParallel">Pages at once</label>
+          <span><input type="number" id="sParallel" name="parallel" min="1" step="1"> <span class="sub">per download</span></span>
+
+          <label for="sRetry">Retries per page</label>
+          <input type="number" id="sRetry" name="retry" min="0" step="1">
+
+          <label for="sDelay">Delay between pages</label>
+          <span><input type="number" id="sDelay" name="delayMilliseconds" min="0" step="1"> <span class="sub">ms</span></span>
+
+          <label for="sCheck">Check tracked series</label>
+          <span>every <input type="number" id="sCheck" name="checkEveryMinutes" min="0" max="10080" step="1"> <span class="sub">minutes (0 = only when manually clicking Check)</span></span>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="14 2 18 6 7 17 3 17 3 13 14 2"></polygon><line x1="3" y1="22" x2="21" y2="22"></line></svg>
+          <h3>Image Conversion & Tag Rules</h3>
+        </div>
+        <div class="form-grid">
+          <label for="sConversion">Conversion rules</label>
+          <div>
+            <textarea id="sConversion" name="conversionRules" rows="2" placeholder="webp->png&#10;*->webp@85"></textarea>
+            <div class="hint">Convert images on the fly (e.g. <code>webp->png</code> or <code>*->webp@85</code> for quality, one rule per line).</div>
+          </div>
+
+          <label for="sTags">LANraragi tag rules</label>
+          <div>
+            <textarea id="sTags" name="tagRules" rows="2" placeholder="-tag&#10;-ns:*&#10;~ns&#10;artist:a -> b"></textarea>
+            <div class="hint">LANraragi tag normalization rules applied to metadata before packaging (one rule per line).</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          <h3>Network, Bypass & Cookies</h3>
+        </div>
+        <div class="form-grid">
+          <label for="sProxy">Proxy URL</label>
+          <div>
+            <input type="text" id="sProxy" name="proxyUrl" placeholder="http://127.0.0.1:8080 or socks5://127.0.0.1:9050" style="max-width:540px; width:100%">
+            <div class="hint">Optional HTTP/HTTPS or SOCKS proxy for all outgoing site requests.</div>
+          </div>
+
+          <label for="sFlare">FlareSolverr URL</label>
+          <div>
+            <input type="text" id="sFlare" name="flareSolverrUrl" placeholder="http://127.0.0.1:8191/v1" style="max-width:540px; width:100%">
+            <div class="hint">Optional FlareSolverr endpoint for automated Cloudflare turnstile bypass.</div>
+          </div>
+
+          <label>Cookie Jar</label>
+          <div>
+            <button type="button" class="small danger" id="clearCookies">Clear all site cookies</button>
+            <span class="hint" style="display:inline-block; margin-left:8px;">Deletes stored session cookies and clearances.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <h3>Site Logins</h3>
+        </div>
+        <div class="cred-container">
+          <div id="credList" class="cred-list"></div>
+          <div class="cred-add-box">
+            <div class="sub" style="font-weight:600; margin-bottom:6px">Add or update login:</div>
+            <div class="row">
+              <input type="text" id="credDomain" placeholder="Domain (e.g. e-hentai.org)" size="22">
+              <input type="text" id="credUser" placeholder="Username" size="18">
+              <input type="password" id="credPass" placeholder="Password" size="18">
+              <button type="button" class="small" id="credAdd">Save login</button>
+            </div>
+            <div class="hint">Passwords are protected on disk via Windows DPAPI and used only for site authentication.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+          <h3>Send from Phone</h3>
+        </div>
+        <div>
+          <div class="row" style="margin-bottom:8px">
+            <button type="button" class="small" id="phoneToggle">Enable phone links</button>
+            <span class="sub">Connect phone to same trusted Wi-Fi. Access resets when the app closes.</span>
+          </div>
+          <div id="phoneLinks"></div>
+          <span class="sub hint" id="phoneHelp" hidden>Scan the QR code or open a private link above on your phone and bookmark it, then paste links to queue them directly. Keep the link private. If it does not connect, verify both devices use the same Wi-Fi network.</span>
+        </div>
+      </div>
     </form>
-    <div class="tools">
-      <button class="small primary" id="settingsSave">Save settings</button>
+
+    <div class="settings-sticky-bar">
+      <button class="primary small" id="settingsSave">Save settings</button>
       <button class="small" id="settingsRevert">Undo changes</button>
       <span class="sub" id="settingsNote"></span>
     </div>
-    <div class="tools">
-      <strong>Send from phone</strong>
-      <button class="small" id="phoneToggle">Enable phone links</button>
-      <span class="sub">Connect your phone to the same trusted Wi-Fi as this PC. Keep the app running. Uses local HTTP.</span>
-      <div id="phoneLinks" style="width:100%;overflow-wrap:anywhere"></div>
-      <span class="sub" id="phoneHelp" hidden>Open a private link above on your phone and bookmark it, then paste links to send to this queue. Keep it private. If Windows Firewall asks, allow access on private networks. If it does not connect, check that both devices use the same network and that your router permits connections between them. Access turns off when the app closes; enabling it again creates a new link.</span>
-    </div>
   </section>
 </div>
+
 <dialog id="chapterDialog" aria-labelledby="chapterTitle">
-  <h2 id="chapterTitle">Series chapters</h2>
-  <p class="sub">Choose chapters to download. “New” means chapters found by the latest check. Selected chapters are saved separately, even when combined archives are enabled.</p>
-  <div class="row"><button type="button" id="chapAll">All</button><button type="button" id="chapNew">New</button><button type="button" id="chapNone">None</button>
-    <label>From <input type="number" id="chapFrom" min="1" step="1"></label><label>to <input type="number" id="chapTo" min="1" step="1"></label><button type="button" id="chapRange">Select range</button></div>
-  <div id="chapterList"></div><div id="chapterError" class="err" role="status"></div>
-  <div class="row"><button type="button" id="chapDownload" class="primary">Add selected to queue</button><button type="button" id="chapClose">Close</button></div>
+  <div class="dialog-header">
+    <div class="row" style="justify-content:space-between; align-items:flex-start">
+      <h2 id="chapterTitle">Series chapters</h2>
+      <button type="button" id="chapCloseTop" class="icon-btn" aria-label="Close dialog">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <p class="sub" style="margin:6px 0 10px;">Choose chapters to download by their positions in this list. “New” means chapters found by the latest check. Selected chapters are saved separately, even when combined archives are enabled.</p>
+    <div class="chap-filter-bar">
+      <input type="text" id="chapFilter" placeholder="Filter chapters by title or number…" aria-label="Filter chapters">
+      <span class="sub" id="chapSelectedCount">0 selected</span>
+    </div>
+    <div class="row chap-toolbar">
+      <button type="button" id="chapAll">All</button>
+      <button type="button" id="chapNew">New</button>
+      <button type="button" id="chapNone">None</button>
+      <div class="range-group">
+        <label>From <input type="number" id="chapFrom" min="1" step="1"></label>
+        <label>to <input type="number" id="chapTo" min="1" step="1"></label>
+        <button type="button" id="chapRange">Select range</button>
+      </div>
+    </div>
+  </div>
+  <div id="chapterList"></div>
+  <div id="chapterError" class="err" role="status" style="padding:0 20px;"></div>
+  <div class="dialog-footer">
+    <button type="button" id="chapDownload" class="primary">Add selected to queue</button>
+    <button type="button" id="chapClose">Close</button>
+  </div>
 </dialog>
+
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -258,11 +1296,18 @@ function toast(msg, ms) {
   clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), ms || 3500);
 }
 
-async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(data.error || ('HTTP ' + r.status)), { status: r.status });
-  return data;
+async function api(path, body, timeoutMilliseconds = body === undefined ? 10000 : 0) {
+  const controller = new AbortController();
+  const timeout = timeoutMilliseconds ? setTimeout(() => controller.abort(), timeoutMilliseconds) : null;
+  try {
+    const r = await fetch(path, { ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), signal: controller.signal });
+    const data = await r.json().catch(e => { if (e.name === 'AbortError') throw e; return {}; });
+    if (!r.ok) throw Object.assign(new Error(data.error || ('HTTP ' + r.status)), { status: r.status });
+    return data;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('The request timed out. Check the connection to Manga Downloader and try again.');
+    throw e;
+  } finally { clearTimeout(timeout); }
 }
 
 async function act(path, body, okMsg) {
@@ -300,10 +1345,17 @@ function queueRow(q) {
   if (q.status === 'Downloading' || q.status === 'Queued') acts.append(el('button', { class: 'small', text: 'Stop', onclick: () => act('/api/queue/' + q.id + '/cancel') }));
   if (q.status === 'Failed' || q.status === 'Stopped') acts.append(el('button', { class: 'small', text: q.status === 'Stopped' ? 'Resume' : 'Retry', onclick: () => act('/api/queue/' + q.id + '/retry') }));
   if (q.status !== 'Downloading') acts.append(el('button', { class: 'small danger', text: 'Remove', onclick: () => act('/api/queue/' + q.id + '/remove') }));
-  const row = el('div', { class: 'item' },
-    el('div', {}, el('div', { class: 'title', text: q.title || q.url }), el('div', { class: 'sub', text: [host(q.url), progressText(q)].filter(Boolean).join(' · ') })),
-    el('div', { class: 'actions' }, el('span', { class: 'status ' + q.status, text: q.packagingFormat ? 'Creating ' + q.packagingFormat + '…' : q.status }), acts));
-  if (q.status === 'Downloading' || (q.status !== 'Completed' && q.progress > 0)) row.append(el('div', { class: 'bar' }, el('div', { style: 'width:' + pct + '%' })));
+  const isDl = q.status === 'Downloading';
+  const row = el('div', { class: 'item' + (isDl ? ' is-downloading' : '') },
+    el('div', {},
+      el('div', { class: 'title', text: q.title || q.url }),
+      el('div', { class: 'sub' }, el('span', { class: 'host-tag', text: host(q.url) }), ' · ' + progressText(q))),
+    el('div', { class: 'item-side' },
+      el('span', { class: 'status ' + q.status, text: q.packagingFormat ? 'Creating ' + q.packagingFormat + '…' : q.status }),
+      acts));
+  if (q.status === 'Downloading' || (q.status !== 'Completed' && q.progress > 0)) {
+    row.append(el('div', { class: 'bar' + (isDl ? ' active' : '') }, el('div', { style: 'width:' + pct + '%' })));
+  }
   if (q.error && q.status !== 'Completed') row.append(errorDetails(q.error, q.url));
   if (q.status === 'Completed' && q.outputs && q.outputs.length) row.append(el('div', { class: 'sub', style: 'grid-column:1/-1', text: q.outputs.join('  ·  ') }));
   return row;
@@ -311,7 +1363,9 @@ function queueRow(q) {
 
 function historyRow(h) {
   return el('div', { class: 'item' },
-    el('div', {}, el('div', { class: 'title', text: h.title || h.url }), el('div', { class: 'sub', text: host(h.url) + ' · ' + h.pages + ' pages · ' + ago(h.finishedAt) })),
+    el('div', {},
+      el('div', { class: 'title', text: h.title || h.url }),
+      el('div', { class: 'sub' }, el('span', { class: 'host-tag', text: host(h.url) }), ' · ' + h.pages + ' pages · ' + ago(h.finishedAt))),
     el('span', { class: 'status ' + h.status, text: h.status }),
     h.error ? errorDetails(h.error, h.url) : null,
     h.outputs && h.outputs.length ? el('div', { class: 'sub', style: 'grid-column:1/-1' }, ...h.outputs.map((path, index) => el('div', {}, path + ' ', ...(h.status === 'Completed' ? [el('button', { class: 'small', text: 'Open file', onclick: () => act('/api/history/' + h.id + '/open', { index }) }), ' ', el('button', { class: 'small', text: 'Show in folder', onclick: () => act('/api/history/' + h.id + '/show', { index }) })] : [])))) : null);
@@ -320,10 +1374,11 @@ function historyRow(h) {
 function trackedRow(t) {
   const flag = t.newCount > 0 ? el('span', { class: 'status Downloading', text: t.newCount + ' new' }) : el('span', { class: 'status Queued', text: 'up to date' });
   const row = el('div', { class: 'item' },
-    el('div', {}, el('div', { class: 'title', text: t.title || t.url }),
-      el('div', { class: 'sub', text: host(t.url) + ' · ' + t.chapters + ' chapters known · checked ' + (t.checking ? 'now…' : ago(t.lastChecked)) })),
-    el('div', { class: 'actions' }, flag,
-      el('label', { class: 'sub' }, el('input', { type: 'checkbox', ...(t.autoDownload ? { checked: '' } : {}), onchange: e => act('/api/track/' + t.id + '/auto', { enabled: e.target.checked }) }), ' Download new chapters automatically'),
+    el('div', {},
+      el('div', { class: 'title', text: t.title || t.url }),
+      el('div', { class: 'sub' }, el('span', { class: 'host-tag', text: host(t.url) }), ' · ' + t.chapters + ' chapters known · checked ' + (t.checking ? 'now…' : ago(t.lastChecked)))),
+    el('div', { class: 'item-side' }, flag,
+      el('label', { class: 'sub' }, el('input', { type: 'checkbox', ...(t.autoDownload ? { checked: '' } : {}), onchange: e => act('/api/track/' + t.id + '/auto', { enabled: e.target.checked }) }), ' Auto-download'),
       el('button', { class: 'small', text: 'Check', onclick: () => act('/api/track/' + t.id + '/check', {}, 'Checking…') }),
       el('button', { class: 'small', text: 'Chapters…', onclick: () => showChapters(t) }),
       el('button', { class: 'small', text: 'Download all', onclick: () => act('/api/queue', { urls: t.url }, 'Queued') }),
@@ -332,7 +1387,24 @@ function trackedRow(t) {
   return row;
 }
 
-function fill(id, items, make, emptyText) {
+function makeEmpty(text, kind) {
+  const box = el('div', { class: 'empty' });
+  const svg = document.createElement('div');
+  svg.className = 'empty-icon';
+  if (kind === 'queue') {
+    svg.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>';
+  } else if (kind === 'history') {
+    svg.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+  } else if (kind === 'tracked') {
+    svg.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+  } else {
+    svg.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
+  }
+  box.append(svg, el('div', { class: 'empty-text', text }));
+  return box;
+}
+
+function fill(id, items, make, emptyText, emptyKind) {
   const box = $(id), selection = window.getSelection(), scroll = box.scrollTop;
   const existing = new Map([...box.children].map(row => [row.dataset.key, row]));
   const rows = items.length ? items.map(item => ({ key: String(item.id ?? item.domain), item })) : [{ key: '__empty__', item: null }];
@@ -342,7 +1414,7 @@ function fill(id, items, make, emptyText) {
     let row = existing.get(key), signature = item == null ? emptyText : JSON.stringify(item);
     const interacting = row && (row.contains(document.activeElement) || (selection && !selection.isCollapsed && row.contains(selection.anchorNode)));
     if (!row || (row.dataset.signature !== signature && !interacting)) {
-      const next = item == null ? el('div', { class: 'empty', text: emptyText }) : make(item);
+      const next = item == null ? makeEmpty(emptyText, emptyKind || id) : make(item);
       next.dataset.key = key; next.dataset.signature = signature;
       if (row) row.replaceWith(next);
       row = next;
@@ -382,9 +1454,9 @@ function render() {
   $('nHistory').textContent = state.history.length ? ' ' + state.history.length : '';
   $('nTracked').textContent = state.tracked.length ? ' ' + state.tracked.length : '';
   const filtered = (items, prefix) => items.filter(x => (!$(prefix + 'Status').value || x.status === $(prefix + 'Status').value) && ((x.title || '') + ' ' + x.url).toLowerCase().includes($(prefix + 'Search').value.trim().toLowerCase()));
-  fill('queue', filtered(state.queue, 'queue'), queueRow, 'No matching queue items.');
-  fill('history', filtered(state.history, 'history'), historyRow, 'No matching history items.');
-  fill('tracked', state.tracked, trackedRow, 'No tracked series. Paste a series URL and choose “Track as series”.');
+  fill('queue', filtered(state.queue, 'queue'), queueRow, 'No matching queue items. Paste URLs above to add downloads.', 'queue');
+  fill('history', filtered(state.history, 'history'), historyRow, 'No matching history items.', 'history');
+  fill('tracked', state.tracked, trackedRow, 'No tracked series. Paste a series URL and choose “Track as series”.', 'tracked');
 }
 
 const FORMAT_NAMES = { cbz: 'CBZ', zip: 'ZIP', pdf: 'PDF', folder: 'image folders' };
@@ -397,15 +1469,21 @@ function renderSettings() {
   $('phoneToggle').textContent = phone.enabled ? 'Disable phone links' : 'Enable phone links';
   $('phoneHelp').hidden = !phone.enabled;
   const phoneKey = JSON.stringify(phone);
-  if ($('phoneLinks').dataset.key !== phoneKey) { $('phoneLinks').dataset.key = phoneKey;
+  if ($('phoneLinks').dataset.key !== phoneKey) {
+    $('phoneLinks').dataset.key = phoneKey;
     $('phoneLinks').replaceChildren(...phone.urls.map((url, i) => {
       const canvas = el('canvas', { class: 'phone-qr', role: 'img', 'aria-label': 'QR code for phone link' });
       const matrix = phone.qrCodes[i], context = canvas.getContext('2d'); canvas.width = canvas.height = matrix.length;
       context.fillStyle = '#fff'; context.fillRect(0, 0, matrix.length, matrix.length); context.fillStyle = '#000';
       matrix.forEach((row, y) => row.forEach((on, x) => { if (on) context.fillRect(x, y, 1, 1); }));
-      return el('div', {}, canvas, el('div', {}, el('a', { href: url, text: url }), ' ', el('button', { class: 'small', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast('Select and copy the link.'); } } })));
+      return el('div', { class: 'phone-qr-card' },
+        canvas,
+        el('div', { class: 'phone-link-actions' },
+          el('a', { href: url, text: url, target: '_blank', rel: 'noopener noreferrer' }),
+          el('button', { class: 'small', type: 'button', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast('Select and copy the link.'); } } })));
     }));
-    if (phone.enabled && !phone.urls.length) $('phoneLinks').textContent = 'No network address found. Connect this PC to Wi-Fi, then disable and enable phone links.'; }
+    if (phone.enabled && !phone.urls.length) $('phoneLinks').textContent = 'No network address found. Connect this PC to Wi-Fi, then disable and enable phone links.';
+  }
   const s = state.settings;
   $('saveSummary').hidden = !s;
   document.querySelector('#tabs [data-tab=settings]').hidden = !s;
@@ -417,10 +1495,24 @@ function renderSettings() {
   const f = $('settings').elements;
   f.outputDirectory.value = state.outputDirectory;
   f.format.value = s.format;
-  for (const n of NUMBER_SETTINGS) f[n].value = s[n];
-  f.parallel.max = s.limits.parallel; f.retry.max = s.limits.retry; f.delayMilliseconds.max = s.limits.delayMilliseconds;
-  f.keepImages.checked = s.keepImages; f.overwrite.checked = s.overwrite;
-  f.combineChapters.checked = s.combineChapters;
+  for (const n of NUMBER_SETTINGS) if (f[n] && s[n] !== undefined) f[n].value = s[n];
+  if (f.parallel && s.limits) f.parallel.max = s.limits.parallel;
+  if (f.retry && s.limits) f.retry.max = s.limits.retry;
+  if (f.delayMilliseconds && s.limits) f.delayMilliseconds.max = s.limits.delayMilliseconds;
+  if (f.keepImages) f.keepImages.checked = !!s.keepImages;
+  if (f.overwrite) f.overwrite.checked = !!s.overwrite;
+  if (f.combineChapters) f.combineChapters.checked = !!s.combineChapters;
+
+  if (f.conversionRules) {
+    const cr = s.conversionRules;
+    f.conversionRules.value = Array.isArray(cr) ? cr.join('\n') : (cr || '');
+  }
+  if (f.tagRules) {
+    const tr = s.tagRules;
+    f.tagRules.value = Array.isArray(tr) ? tr.join('\n') : (tr || '');
+  }
+  if (f.proxyUrl) f.proxyUrl.value = s.proxyUrl || '';
+  if (f.flareSolverrUrl) f.flareSolverrUrl.value = s.flareSolverrUrl || '';
 }
 
 // Sends only what differs from the current settings, so values given on the command line are not saved by accident.
@@ -431,53 +1523,195 @@ async function saveSettings() {
   if (f.outputDirectory.value.trim() !== state.outputDirectory) body.outputDirectory = f.outputDirectory.value;
   if (f.format.value !== s.format) body.format = f.format.value;
   for (const n of NUMBER_SETTINGS) {
-    if (!f[n].checkValidity() || f[n].value === '') { f[n].closest('details').open = true; f[n].focus(); if (f[n].value === '') return toast('Enter a value for ' + document.querySelector('label[for=' + f[n].id + ']').textContent + '.'); f[n].reportValidity(); return; }
-    if (Number(f[n].value) !== s[n]) body[n] = Number(f[n].value);
+    if (f[n]) {
+      if (!f[n].checkValidity() || f[n].value === '') {
+        f[n].focus();
+        if (f[n].value === '') return toast('Enter a value for ' + (document.querySelector('label[for=' + f[n].id + ']')?.textContent || n) + '.');
+        f[n].reportValidity();
+        return;
+      }
+      if (Number(f[n].value) !== s[n]) body[n] = Number(f[n].value);
+    }
   }
-  if (f.keepImages.checked !== s.keepImages) body.keepImages = f.keepImages.checked;
-  if (f.overwrite.checked !== s.overwrite) body.overwrite = f.overwrite.checked;
-  if (f.combineChapters.checked !== s.combineChapters) body.combineChapters = f.combineChapters.checked;
+  if (f.keepImages && f.keepImages.checked !== !!s.keepImages) body.keepImages = f.keepImages.checked;
+  if (f.overwrite && f.overwrite.checked !== !!s.overwrite) body.overwrite = f.overwrite.checked;
+  if (f.combineChapters && f.combineChapters.checked !== !!s.combineChapters) body.combineChapters = f.combineChapters.checked;
+
+  if (f.conversionRules) {
+    const currentCr = (Array.isArray(s.conversionRules) ? s.conversionRules : []).join('\n').trim();
+    const newCrLines = f.conversionRules.value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (newCrLines.join('\n') !== currentCr) body.conversionRules = newCrLines;
+  }
+  if (f.tagRules) {
+    const currentTr = (Array.isArray(s.tagRules) ? s.tagRules : []).join('\n').trim();
+    const newTrLines = f.tagRules.value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (newTrLines.join('\n') !== currentTr) body.tagRules = newTrLines;
+  }
+  if (f.proxyUrl && (f.proxyUrl.value.trim() !== (s.proxyUrl || ''))) {
+    body.proxyUrl = f.proxyUrl.value.trim();
+  }
+  if (f.flareSolverrUrl && (f.flareSolverrUrl.value.trim() !== (s.flareSolverrUrl || ''))) {
+    body.flareSolverrUrl = f.flareSolverrUrl.value.trim();
+  }
+
   if (!Object.keys(body).length) { settingsDirty = false; return toast('Nothing changed.'); }
   try { await api('/api/settings', body); settingsDirty = false; toast('Settings saved'); refresh(); }
   catch (e) { toast(e.message); }
 }
 
+let credentials = [];
+async function loadCredentials() {
+  try {
+    const res = await api('/api/credentials', undefined, 5000);
+    credentials = Array.isArray(res) ? res : (res.credentials || []);
+    renderCredentials();
+  } catch {
+    renderCredentials();
+  }
+}
+
+function renderCredentials() {
+  const box = $('credList');
+  if (!box) return;
+  if (!credentials || !credentials.length) {
+    box.replaceChildren(el('div', { class: 'empty-cred', text: 'No saved site logins.' }));
+    return;
+  }
+  box.replaceChildren(...credentials.map(c => el('div', { class: 'cred-row' },
+    el('span', { class: 'cred-domain', text: c.domain }),
+    el('span', { class: 'cred-user', text: c.username || '(saved login)' }),
+    el('button', {
+      class: 'small danger',
+      text: 'Remove',
+      type: 'button',
+      onclick: async () => {
+        try {
+          await api('/api/credentials/delete', { domain: c.domain }).catch(() => api('/api/credentials?domain=' + encodeURIComponent(c.domain), undefined, 10000));
+          toast('Login removed for ' + c.domain);
+          await loadCredentials();
+        } catch (e) { toast(e.message); }
+      }
+    }))));
+}
+
+$('credAdd').addEventListener('click', async () => {
+  const domain = $('credDomain').value.trim();
+  const username = $('credUser').value.trim();
+  const password = $('credPass').value;
+  if (!domain) return toast('Enter a site domain (e.g. e-hentai.org)');
+  if (!password) return toast('Enter a password');
+  $('credAdd').disabled = true;
+  try {
+    await api('/api/credentials', { domain, username, password });
+    $('credPass').value = '';
+    toast('Login saved for ' + domain);
+    await loadCredentials();
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    $('credAdd').disabled = false;
+  }
+});
+
+$('clearCookies').addEventListener('click', async () => {
+  if (!confirm('Clear all stored site cookies and session clearances?')) return;
+  $('clearCookies').disabled = true;
+  try {
+    await api('/api/cookies/clear', {});
+    toast('Site cookies cleared');
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    $('clearCookies').disabled = false;
+  }
+});
+
 function showTab(name) {
   tab = name;
-  for (const x of document.querySelectorAll('#tabs button')) { const selected = x.dataset.tab === name; x.classList.toggle('on', selected); x.setAttribute('role', 'tab'); x.setAttribute('aria-selected', selected); x.tabIndex = selected ? 0 : -1; }
+  for (const x of document.querySelectorAll('#tabs button')) {
+    const selected = x.dataset.tab === name;
+    x.classList.toggle('on', selected);
+    x.setAttribute('role', 'tab');
+    x.setAttribute('aria-selected', selected);
+    x.tabIndex = selected ? 0 : -1;
+  }
   for (const t of ['queue', 'history', 'tracked', 'sites', 'settings']) $('panel-' + t).hidden = t !== name;
   if (name === 'sites' && !sites) loadSites();
+  if (name === 'settings') loadCredentials();
 }
 
 // Refresh the list after adding a site.
 let sites = null;
+let siteRows = [];
 async function loadSites() {
-  try { sites = await api('/api/sites'); renderSites(); }
+  try {
+    sites = await api('/api/sites');
+    const fragment = document.createDocumentFragment();
+    siteRows = sites.map(s => {
+      const linkable = /^[a-z0-9.-]+$/i.test(s.domain);
+      const row = el('div', { class: 'item' },
+        el('div', {}, linkable ? el('a', { class: 'title', href: 'https://' + s.domain, target: '_blank', rel: 'noopener noreferrer', text: s.domain }) : el('div', { class: 'title', text: s.domain }),
+          s.name && s.name !== s.domain ? el('div', { class: 'sub', text: s.name }) : null),
+        s.adult ? el('span', { class: 'status Stopped', text: 'adult' }) : null);
+      fragment.append(row);
+      return { row, domain: s.domain.toLowerCase(), name: (s.name || '').toLowerCase() };
+    });
+    const sitesEmpty = makeEmpty('No matching sites.', 'sites');
+    sitesEmpty.id = 'sitesEmpty';
+    fragment.append(sitesEmpty);
+    $('sites').replaceChildren(fragment);
+    renderSites();
+  }
   catch (e) { toast(e.message); }
 }
 
 function renderSites() {
   const q = $('siteFilter').value.trim().toLowerCase();
-  const shown = sites.filter(s => !q || s.domain.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q));
-  $('siteCount').textContent = shown.length + (q ? ' of ' + sites.length : '') + ' sites';
-  fill('sites', shown, s => {
-    const linkable = /^[a-z0-9.-]+$/i.test(s.domain);
-    return el('div', { class: 'item' },
-      el('div', {}, linkable ? el('a', { class: 'title', href: 'https://' + s.domain, target: '_blank', rel: 'noopener noreferrer', text: s.domain }) : el('div', { class: 'title', text: s.domain }),
-        s.name && s.name !== s.domain ? el('div', { class: 'sub', text: s.name }) : null),
-      s.adult ? el('span', { class: 'status Stopped', text: 'adult' }) : null);
-  }, 'No sites loaded.');
+  let shown = 0;
+  // Keep rows in place: diffing/reordering a large live list on each keypress is expensive.
+  for (const s of siteRows) {
+    const matches = !q || s.domain.includes(q) || s.name.includes(q);
+    if (s.row.hidden === matches) s.row.hidden = !matches;
+    if (matches) shown++;
+  }
+  $('sitesEmpty').hidden = shown !== 0;
+  $('siteCount').textContent = shown + (q ? ' of ' + sites.length : '') + ' sites';
+  $('sites').scrollTop = 0;
 }
 $('siteFilter').addEventListener('input', () => { if (sites) renderSites(); });
+
+let siteCheckBusy = false;
 $('addSite').addEventListener('click', async () => {
+  if (siteCheckBusy) return;
   const button = $('addSite'), note = $('addSiteNote');
-  button.disabled = true; note.textContent = 'Checking the link…';
+  siteCheckBusy = true; button.disabled = true; button.textContent = 'Checking…';
+  note.textContent = 'Checking the link (up to 30 seconds)… You can keep using the other tabs.';
   try {
-    const result = await api('/api/sites/add', { url: $('newSiteLink').value.trim() });
+    const result = await api('/api/sites/add', { url: $('newSiteLink').value.trim() }, 35000);
     note.textContent = `Site added. Found ${result.pages} images in the sample chapter and ${result.chapters} chapter links. Check the first download before relying on this site.`;
     await loadSites();
   } catch (e) { note.textContent = e.message; }
-  finally { button.disabled = false; }
+  finally { siteCheckBusy = false; button.disabled = !!offline; button.textContent = 'Add site'; }
+});
+
+let syncModulesBusy = false;
+$('syncModules').addEventListener('click', async () => {
+  if (syncModulesBusy) return;
+  const button = $('syncModules');
+  syncModulesBusy = true; button.disabled = true;
+  button.textContent = 'Syncing…';
+  try {
+    const res = await api('/api/modules/sync', {}, 120000);
+    const added = res.added ?? 0, updated = res.updated ?? 0, unchanged = res.unchanged ?? 0;
+    toast(`Modules synced: ${added} added, ${updated} updated, ${unchanged} unchanged`);
+    await loadSites();
+  } catch (e) {
+    toast('Module sync: ' + e.message);
+  } finally {
+    syncModulesBusy = false;
+    button.disabled = !!offline;
+    button.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg> Sync modules';
+  }
 });
 
 // While the server cannot be reached, say so and disable every control (tabs stay usable); polling carries on and undoes it.
@@ -490,15 +1724,46 @@ function setOffline(kind) {
     ? 'This page’s access token is no longer valid, probably because manga-downloader was restarted. Open the new address it printed.'
     : 'Lost the connection to manga-downloader. Is it still running? Retrying…';
   for (const c of document.querySelectorAll('.wrap button, .wrap input, .wrap select, .wrap textarea')) if (!c.closest('#tabs')) c.disabled = !!kind;
+  $('addSite').disabled = !!kind || siteCheckBusy;
+  $('syncModules').disabled = !!kind || syncModulesBusy;
   if (kind) { $('runnerText').textContent = 'disconnected'; $('runner').className = 'chip'; }
 }
 
+let lastStateEtag = null;
 let refreshing = false;
 async function refresh() {
-  if (refreshing) return; refreshing = true;
-  try { state = await api('/api/state'); setOffline(null); render(); }
-  catch (e) { setOffline(e.status === 401 || e.status === 403 ? 'auth' : 'down'); }
-  finally { refreshing = false; }
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const headers = {};
+    if (lastStateEtag) headers['If-None-Match'] = lastStateEtag;
+    const r = await fetch('/api/state', { headers, signal: controller.signal }).finally(() => clearTimeout(timeout));
+
+    if (r.status === 304) {
+      setOffline(null);
+      return;
+    }
+    const data = await r.json().catch(e => { if (e.name === 'AbortError') throw e; return {}; });
+    if (!r.ok) throw Object.assign(new Error(data.error || ('HTTP ' + r.status)), { status: r.status });
+
+    const etag = r.headers.get('ETag');
+    if (etag) lastStateEtag = etag;
+
+    if (data.unchanged) {
+      setOffline(null);
+      return;
+    }
+
+    state = data;
+    setOffline(null);
+    render();
+  } catch (e) {
+    setOffline(e.status === 401 || e.status === 403 ? 'auth' : 'down');
+  } finally {
+    refreshing = false;
+  }
 }
 
 $('tabs').addEventListener('click', e => {
@@ -514,45 +1779,121 @@ $('chooseFolder').onclick = async () => {
   try { const result = await api('/api/settings/choose-folder', {}); if (result.path) { $('sOut').value = result.path; settingsDirty = true; $('settingsNote').textContent = 'Unsaved changes.'; } }
   catch (e) { toast(e.message); } finally { $('chooseFolder').disabled = false; }
 };
+
 let chapterSeries = null, chapterData = [];
 async function showChapters(series) {
   chapterSeries = series; chapterData = []; $('chapterTitle').textContent = series.title || series.url;
+  $('chapNew').hidden = !series.id;
   $('chapterList').textContent = 'Loading chapters…'; $('chapterError').textContent = ''; $('chapDownload').disabled = true;
+  if ($('chapFilter')) $('chapFilter').value = '';
   $('chapterDialog').showModal();
   try {
-    const data = await api('/api/track/' + series.id + '/chapters', {}); chapterData = data.chapters;
-    $('chapterList').replaceChildren(...chapterData.map((chapter, i) => el('label', {}, el('input', { type: 'checkbox', value: i }), (i + 1) + '. ' + (chapter.title || chapter.url) + (chapter.isNew ? ' (new)' : ''))));
-    if (!chapterData.length) $('chapterList').textContent = 'No chapters found.';
+    const data = series.id ? await api('/api/track/' + series.id + '/chapters', {}) : await api('/api/chapters/list', { url: series.url });
+    chapterData = data.chapters || [];
+    $('chapterTitle').textContent = data.title || series.title || series.url;
+    renderChapterList();
+    if (!chapterData.length) $('chapterList').textContent = 'No chapter list found. Close this window and add the link to the queue normally.';
     $('chapFrom').max = $('chapTo').max = chapterData.length; $('chapFrom').value = 1; $('chapTo').value = chapterData.length;
     $('chapDownload').disabled = !chapterData.length;
   } catch (e) { $('chapterError').textContent = e.message; }
 }
-function selectChapters(test) { for (const input of $('chapterList').querySelectorAll('input')) input.checked = test(Number(input.value)); }
+
+function updateChapterCount() {
+  const checked = chapterData.filter(c => c.selected).length;
+  const total = chapterData.length;
+  if ($('chapSelectedCount')) $('chapSelectedCount').textContent = checked + ' of ' + total + ' selected';
+}
+
+function renderChapterList() {
+  const filter = ($('chapFilter')?.value || '').trim().toLowerCase();
+  const fragment = document.createDocumentFragment();
+  chapterData.forEach((chapter, i) => {
+    const title = chapter.title || chapter.url;
+    const num = i + 1;
+    const matches = !filter || title.toLowerCase().includes(filter) || String(num).includes(filter);
+    if (!matches) return;
+    const label = el('label', { class: 'chap-item' },
+      el('input', {
+        type: 'checkbox',
+        value: i,
+        ...(chapter.selected ? { checked: '' } : {}),
+        onchange: e => {
+          chapter.selected = e.target.checked;
+          updateChapterCount();
+        }
+      }),
+      el('span', { class: 'chap-num', text: String(num) }),
+      el('span', { class: 'chap-name', text: title }),
+      chapter.isNew ? el('span', { class: 'badge ok-badge', text: 'NEW' }) : null);
+    fragment.append(label);
+  });
+  $('chapterList').replaceChildren(fragment);
+  updateChapterCount();
+}
+
+if ($('chapFilter')) $('chapFilter').addEventListener('input', renderChapterList);
+
+function selectChapters(test) {
+  chapterData.forEach((c, i) => { c.selected = test(i); });
+  for (const input of $('chapterList').querySelectorAll('input[type=checkbox]')) {
+    input.checked = !!chapterData[Number(input.value)].selected;
+  }
+  updateChapterCount();
+}
+
 $('chapAll').onclick = () => selectChapters(() => true);
 $('chapNew').onclick = () => selectChapters(i => chapterData[i].isNew);
 $('chapNone').onclick = () => selectChapters(() => false);
-$('chapRange').onclick = () => { const from = Number($('chapFrom').value), to = Number($('chapTo').value); if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to > chapterData.length || from > to) { $('chapterError').textContent = 'Enter a valid chapter range.'; return; } $('chapterError').textContent = ''; selectChapters(i => i + 1 >= from && i + 1 <= to); };
+$('chapRange').onclick = () => {
+  const from = Number($('chapFrom').value), to = Number($('chapTo').value);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to > chapterData.length || from > to) {
+    $('chapterError').textContent = 'Enter a valid chapter range.'; return;
+  }
+  $('chapterError').textContent = '';
+  selectChapters(i => i + 1 >= from && i + 1 <= to);
+};
 $('chapClose').onclick = () => $('chapterDialog').close();
+if ($('chapCloseTop')) $('chapCloseTop').onclick = () => $('chapterDialog').close();
+
 $('chapDownload').onclick = async () => {
-  const urls = [...$('chapterList').querySelectorAll('input:checked')].map(input => chapterData[Number(input.value)].url);
+  for (const input of $('chapterList').querySelectorAll('input[type=checkbox]')) {
+    chapterData[Number(input.value)].selected = input.checked;
+  }
+  const urls = chapterData.filter(c => c.selected).map(c => c.url);
   if (!urls.length) { $('chapterError').textContent = 'Select at least one chapter.'; return; }
   $('chapDownload').disabled = true;
-  try { const result = await api('/api/track/' + chapterSeries.id + '/download-selected', { urls }); $('chapterDialog').close(); toast(result.added + ' chapters added to queue'); refresh(); }
-  catch (e) { $('chapterError').textContent = e.message; } finally { $('chapDownload').disabled = false; }
+  try {
+    const result = chapterSeries.id ? await api('/api/track/' + chapterSeries.id + '/download-selected', { urls }) : await api('/api/chapters/download-selected', { url: chapterSeries.url, urls });
+    $('chapterDialog').close();
+    if (!chapterSeries.id && $('urls').value.trim() === chapterSeries.url) $('urls').value = '';
+    toast(result.added + ' chapters added to queue');
+    refresh();
+  }
+  catch (e) { $('chapterError').textContent = e.message; }
+  finally { $('chapDownload').disabled = false; }
 };
+
 $('phoneToggle').onclick = async () => {
   $('phoneToggle').disabled = true;
   try { await api('/api/phone', { enabled: !state.phone.enabled }); await refresh(); }
   catch (error) { toast(error.message); }
   finally { $('phoneToggle').disabled = false; }
 };
-$('settingsRevert').onclick = () => { settingsDirty = false; render(); };
+$('settingsRevert').onclick = () => { settingsDirty = false; render(); toast('Changes reverted'); };
+$('chooseChapters').onclick = () => {
+  const urls = $('urls').value.split(/\s+/).filter(Boolean);
+  if (urls.length !== 1) { $('addErrors').textContent = 'Enter one series URL to choose chapters.'; return; }
+  $('addErrors').textContent = '';
+  showChapters({ url: urls[0] });
+};
 $('addBtn').onclick = async () => {
   $('addBtn').disabled = $('trackBtn').disabled = true; $('addErrors').textContent = '';
-  try { const d = await api('/api/queue', { urls: $('urls').value });
+  try {
+    const d = await api('/api/queue', { urls: $('urls').value });
     $('urls').value = d.rejected.map(x => x.url).join('\n');
     $('addErrors').textContent = d.rejected.map(x => x.url + ': ' + x.error).join('\n');
-    toast(d.added + ' added, ' + d.alreadyQueued + ' already queued' + (d.rejected.length ? ', ' + d.rejected.length + ' rejected' : '')); refresh();
+    toast(d.added + ' added, ' + d.alreadyQueued + ' already queued' + (d.rejected.length ? ', ' + d.rejected.length + ' rejected' : ''));
+    refresh();
   } catch (e) { $('addErrors').textContent = e.message; }
   finally { $('addBtn').disabled = $('trackBtn').disabled = false; }
 };
@@ -561,7 +1902,6 @@ $('trackBtn').onclick = async () => {
   if (!urls.length) return toast('Paste a series URL first.');
   $('addBtn').disabled = $('trackBtn').disabled = true;
   toast('Reading chapter list…', 60000);
-  // Failed URLs stay in the box so they can be fixed; the toast sums up instead of each error replacing the last.
   const failed = [];
   for (const url of urls) { try { await api('/api/track', { url, autoDownload: $('autoDl').checked }); } catch (e) { failed.push({ url, error: e.message }); } }
   $('urls').value = failed.map(f => f.url).join('\n');
@@ -580,9 +1920,27 @@ $('verifySend').onclick = () => act('/api/verify', { text: $('verifyText').value
 $('verifyCancel').onclick = () => act('/api/verify/cancel', {}, 'Check cancelled');
 $('clearHistory').onclick = () => { if (confirm('Clear all download history? This cannot be undone.')) act('/api/history/clear'); };
 $('clearCompleted').onclick = () => { if (confirm('Clear completed queue items?')) act('/api/queue/clear-completed'); };
-$('retryFailed').onclick = async () => { $('retryFailed').disabled = true; try { const failed = state.queue.filter(q => q.status === 'Failed'); for (const q of failed) await api('/api/queue/' + q.id + '/retry', {}); toast(failed.length + ' retried'); refresh(); } catch (e) { toast(e.message); } finally { $('retryFailed').disabled = false; } };
+$('retryFailed').onclick = async () => {
+  $('retryFailed').disabled = true;
+  try {
+    const failed = state.queue.filter(q => q.status === 'Failed');
+    for (const q of failed) await api('/api/queue/' + q.id + '/retry', {});
+    toast(failed.length + ' retried');
+    refresh();
+  } catch (e) { toast(e.message); }
+  finally { $('retryFailed').disabled = false; }
+};
 for (const id of ['queueSearch', 'queueStatus', 'historySearch', 'historyStatus']) $(id).addEventListener('input', render);
-$('tabs').addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return; const tabs = [...document.querySelectorAll('#tabs button:not([hidden])')]; let i = tabs.indexOf(document.activeElement); if (i < 0) return; e.preventDefault(); i = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; showTab(tabs[i].dataset.tab); tabs[i].focus(); });
+$('tabs').addEventListener('keydown', e => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  const tabs = [...document.querySelectorAll('#tabs button:not([hidden])')];
+  let i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  e.preventDefault();
+  i = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  showTab(tabs[i].dataset.tab);
+  tabs[i].focus();
+});
 showTab('queue');
 $('checkAll').onclick = () => act('/api/track/check-all', {}, 'Checking all…');
 function imported(d, name) { if (d) toast((name ? name + ': imported ' : 'Imported ') + d.added + ' (' + d.alreadyPresent + ' already queued)'); }

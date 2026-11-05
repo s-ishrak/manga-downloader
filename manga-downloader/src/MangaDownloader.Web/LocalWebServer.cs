@@ -15,6 +15,8 @@ using System.Threading.Tasks;
 using MangaDownloader.Core;
 using MangaDownloader.Core.Download;
 using MangaDownloader.Core.Library;
+using MangaDownloader.Core.Network;
+using MangaDownloader.Net;
 
 namespace MangaDownloader.Web
 {
@@ -46,6 +48,11 @@ namespace MangaDownloader.Web
         private Task acceptLoop;
         private readonly string settingsFile;
         private readonly ModuleRepository modules;
+        private readonly bool phoneLinksEnabled;
+        private readonly string phoneLinkToken;
+        private readonly CredentialStore credentials;
+        private readonly CookieJar cookies;
+        private readonly IHttpBackend http;
         private readonly object settingsGate = new object();
         private int checkEveryMinutes;
         private readonly object phoneGate = new object();
@@ -53,7 +60,7 @@ namespace MangaDownloader.Web
 
         /// <param name="settingsFile">Where changes made in the page are saved (only the fields changed there); null keeps them for this run only.</param>
         /// <param name="modules">The loaded scrapers; when given, the page lists the sites they support.</param>
-        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null, string settingsFile = null, ModuleRepository modules = null)
+        public LocalWebServer(LibraryDb library, QueueRunner runner, SeriesTracker tracker, int port, string token = null, DownloadOptions download = null, string settingsFile = null, ModuleRepository modules = null, bool phoneLinksEnabled = false, string phoneLinkToken = null, CredentialStore credentials = null, CookieJar cookies = null, IHttpBackend http = null)
         {
             this.download = download;
             this.modules = modules;
@@ -61,9 +68,37 @@ namespace MangaDownloader.Web
             this.library = library;
             this.runner = runner;
             this.tracker = tracker;
+            this.phoneLinksEnabled = phoneLinksEnabled;
+            this.phoneLinkToken = phoneLinkToken;
+            this.credentials = credentials ?? (settingsFile != null ? new CredentialStore(Path.Combine(Path.GetDirectoryName(settingsFile), "credentials.json")) : null);
+            this.cookies = cookies;
+            this.http = http;
             Port = port;
             Token = token ?? NewToken();
             listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+
+            if (download != null && settingsFile != null)
+            {
+                var initialSettings = AppSettings.Load(settingsFile);
+                if (download.ConversionRules.Count == 0 && initialSettings.ConversionRules != null)
+                {
+                    foreach (var r in initialSettings.ConversionRules)
+                    {
+                        if (!string.IsNullOrWhiteSpace(r))
+                        {
+                            try { download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(r.Trim())); }
+                            catch { }
+                        }
+                    }
+                }
+                if (download.TagRules.Count == 0 && initialSettings.TagRules != null)
+                    download.TagRules.AddRange(initialSettings.TagRules);
+                if (download.ModuleSettings.Count == 0 && initialSettings.ModuleSettings != null)
+                {
+                    foreach (var kvp in initialSettings.ModuleSettings)
+                        download.ModuleSettings[kvp.Key] = new Dictionary<string, string>(kvp.Value, StringComparer.OrdinalIgnoreCase);
+                }
+            }
         }
 
         public int Port { get; }
@@ -93,6 +128,15 @@ namespace MangaDownloader.Web
         public void Start()
         {
             listener.Start();
+            if (phoneLinksEnabled)
+            {
+                phone = new PhoneLinkServer(EnqueueLinks, phoneLinkToken);
+                Persist(s =>
+                {
+                    s.PhoneLinksEnabled = true;
+                    s.PhoneLinkToken = phone.Token;
+                });
+            }
             stop = new CancellationTokenSource();
             acceptLoop = Task.Run(() => Accept(stop.Token));
         }
@@ -189,7 +233,37 @@ namespace MangaDownloader.Web
 
                 if (req.HttpMethod == "GET" && path == "/api/state")
                 {
-                    Send(ctx, 200, State());
+                    SendState(ctx);
+                    return;
+                }
+
+                if (req.HttpMethod == "GET" && path == "/api/credentials")
+                {
+                    var list = credentials == null
+                        ? (object)Array.Empty<object>()
+                        : credentials.Domains.Select(d => new { domain = d, username = credentials.UserFor(d) }).ToArray();
+                    Send(ctx, 200, list);
+                    return;
+                }
+
+                if (req.HttpMethod == "DELETE" && path == "/api/credentials")
+                {
+                    var origin = req.Headers["Origin"];
+                    if (origin != null && !origin.Equals($"http://127.0.0.1:{Port}", StringComparison.OrdinalIgnoreCase) && !origin.Equals($"http://localhost:{Port}", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Send(ctx, 403, new { error = "DELETE must be same-origin" });
+                        return;
+                    }
+
+                    if (credentials == null)
+                        throw new ApiException(500, "Credentials store is not configured.");
+
+                    var domain = req.QueryString["domain"];
+                    if (string.IsNullOrWhiteSpace(domain))
+                        throw new ApiException(400, "Missing domain query parameter.");
+
+                    var removed = credentials.Remove(domain);
+                    Send(ctx, 200, new { ok = removed });
                     return;
                 }
 
@@ -273,46 +347,82 @@ namespace MangaDownloader.Web
 
         // ---- API -----------------------------------------------------------------------------------------------
 
-        private object State() => new
+        private object State()
         {
-            phone = PhoneState(),
-            runner = new { running = runner.IsRunning, paused = runner.IsPaused, active = runner.ActiveCount, concurrency = runner.MaxConcurrent, maxConcurrency = QueueRunner.ConcurrencyLimit },
-            outputDirectory = download == null ? null : Path.GetFullPath(download.OutputDirectory),
-            settings = download == null ? null : new
+            var appSettings = settingsFile != null ? AppSettings.Load(settingsFile) : null;
+            return new
             {
-                format = download.SaveFormat.ToString().ToLowerInvariant(),
-                parallel = download.MaxParallel,
-                retry = download.RetryFailed,
-                delayMilliseconds = download.PageDelayMilliseconds,
-                keepImages = download.KeepImages,
-                combineChapters = download.CombineChapters,
-                overwrite = !download.SkipExisting,
-                checkEveryMinutes = CheckEveryMinutes,
-                saved = settingsFile != null,
-                limits = new { parallel = AppSettings.MaxParallel, retry = AppSettings.MaxRetry, delayMilliseconds = AppSettings.MaxDelayMilliseconds },
-            },
-            verification = Pending(),
-            verificationSteps = MangaDownloader.Net.VerificationText.Steps,
-            queue = library.ListQueue().Where(q => q.Status != QueueStatus.Completed).Reverse().Select(q =>
+                phone = PhoneState(),
+                runner = new { running = runner.IsRunning, paused = runner.IsPaused, active = runner.ActiveCount, concurrency = runner.MaxConcurrent, maxConcurrency = QueueRunner.ConcurrencyLimit },
+                outputDirectory = download == null ? null : Path.GetFullPath(download.OutputDirectory),
+                settings = download == null ? null : new
+                {
+                    format = download.SaveFormat.ToString().ToLowerInvariant(),
+                    parallel = download.MaxParallel,
+                    retry = download.RetryFailed,
+                    delayMilliseconds = download.PageDelayMilliseconds,
+                    keepImages = download.KeepImages,
+                    combineChapters = download.CombineChapters,
+                    overwrite = !download.SkipExisting,
+                    checkEveryMinutes = CheckEveryMinutes,
+                    saved = settingsFile != null,
+                    conversionRules = download.ConversionRules.Select(r => r.ToString()).ToList(),
+                    proxyUrl = appSettings?.ProxyUrl ?? "",
+                    flaresolverrUrl = appSettings?.FlareSolverrUrl ?? "",
+                    tagRules = download.TagRules,
+                    moduleSettings = download.ModuleSettings,
+                    limits = new { parallel = AppSettings.MaxParallel, retry = AppSettings.MaxRetry, delayMilliseconds = AppSettings.MaxDelayMilliseconds },
+                },
+                verification = Pending(),
+                verificationSteps = MangaDownloader.Net.VerificationText.Steps,
+                queue = library.ListQueue().Where(q => q.Status != QueueStatus.Completed).Reverse().Select(q =>
+                {
+                    if (q.Status == QueueStatus.Downloading)
+                        q.PackagingFormat = runner.PackagingFormat(q.Id);
+                    return q;
+                }).ToList(),
+                history = library.ListHistory(100),
+                tracked = library.ListTracked().Select(t => new
+                {
+                    t.Id,
+                    t.Url,
+                    t.Title,
+                    chapters = t.KnownChapters.Count,
+                    t.NewCount,
+                    t.LastChecked,
+                    t.LastError,
+                    t.AutoDownload,
+                    checking = checking.ContainsKey(t.Id),
+                }),
+            };
+        }
+
+        private void SendState(HttpListenerContext ctx)
+        {
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(State(), Json);
+            using var sha = SHA256.Create();
+            var hash = sha.ComputeHash(bytes);
+            var etag = "\"" + Convert.ToBase64String(hash) + "\"";
+
+            var ifNoneMatch = ctx.Request.Headers["If-None-Match"];
+            if (!string.IsNullOrEmpty(ifNoneMatch) && string.Equals(ifNoneMatch.Trim(), etag, StringComparison.Ordinal))
             {
-                if (q.Status == QueueStatus.Downloading)
-                    q.PackagingFormat = runner.PackagingFormat(q.Id);
-                return q;
-            }).ToList(),
-            history = library.ListHistory(100),
-            tracked = library.ListTracked().Select(t => new
-            {
-                t.Id,
-                t.Url,
-                t.Title,
-                chapters = t.KnownChapters.Count,
-                t.NewCount,
-                t.LastChecked,
-                t.LastError,
-                t.AutoDownload,
-                checking = checking.ContainsKey(t.Id),
-            }),
-        };
+                ctx.Response.StatusCode = 304;
+                ctx.Response.AddHeader("ETag", etag);
+                ctx.Response.AddHeader("Cache-Control", "no-cache");
+                ctx.Response.ContentLength64 = 0;
+                ctx.Response.Close();
+                return;
+            }
+
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentType = "application/json; charset=utf-8";
+            ctx.Response.AddHeader("Cache-Control", "no-cache");
+            ctx.Response.AddHeader("ETag", etag);
+            ctx.Response.ContentLength64 = bytes.Length;
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            ctx.Response.Close();
+        }
 
         private object Post(string path, string body)
         {
@@ -323,15 +433,94 @@ namespace MangaDownloader.Web
 
             var parts = path.Trim('/').Split('/');
 
+            if (path == "/api/modules/sync")
+            {
+                if (modules == null) throw new ApiException(400, "Module repository is not available.");
+
+                var configDir = settingsFile != null ? Path.GetDirectoryName(settingsFile) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "manga-downloader");
+                var repoFile = Path.Combine(configDir, "repositories.json");
+                var sources = File.Exists(repoFile)
+                    ? MangaDownloader.Core.Sync.RepositorySource.Load(repoFile)
+                    : new List<MangaDownloader.Core.Sync.RepositorySource>
+                    {
+                        new MangaDownloader.Core.Sync.RepositorySource
+                        {
+                            Name = "Official",
+                            RemotePath = "https://github.com/HDoujinDownloader/HDoujin-Downloader/tree/master/modules/lua/"
+                        }
+                    };
+
+                var appSettings = settingsFile != null ? AppSettings.Load(settingsFile) : null;
+                var disabled = appSettings?.DisabledModules ?? new List<string>();
+
+                var sync = new MangaDownloader.Core.Sync.ModuleSync(http ?? new MangaDownloader.Net.HttpClientBackend(), null)
+                {
+                    DisabledModules = new HashSet<string>(disabled, StringComparer.OrdinalIgnoreCase)
+                };
+
+                var result = sync.SyncAll(sources, modules.Directory);
+                modules.Reload(disabled);
+
+                return new
+                {
+                    ok = true,
+                    added = result.Added.Count,
+                    updated = result.Updated.Count,
+                    removed = result.Removed.Count,
+                    unchanged = result.Unchanged,
+                    failed = result.Failed.Count,
+                    total = modules.All.Count
+                };
+            }
+
+            if (path == "/api/credentials")
+            {
+                if (credentials == null) throw new ApiException(500, "Credentials store is not available.");
+                var domain = Str("domain");
+                var username = Str("username");
+                var password = Str("password");
+                if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(username))
+                    throw new ApiException(400, "Domain and username are required.");
+
+                credentials.Set(domain.Trim(), username.Trim(), password ?? "");
+                return new { ok = true };
+            }
+
+            if (path == "/api/credentials/delete" || path == "/api/credentials/remove")
+            {
+                if (credentials == null) throw new ApiException(500, "Credentials store is not available.");
+                var domain = Str("domain");
+                if (string.IsNullOrWhiteSpace(domain))
+                    throw new ApiException(400, "Domain is required.");
+
+                var removed = credentials.Remove(domain.Trim());
+                return new { ok = removed };
+            }
+
+            if (path == "/api/cookies/clear")
+            {
+                cookies?.Clear();
+                var cookieFile = settingsFile != null ? Path.Combine(Path.GetDirectoryName(settingsFile), "cookies.json") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "manga-downloader", "cookies.json");
+                try
+                {
+                    if (File.Exists(cookieFile))
+                        File.Delete(cookieFile);
+                }
+                catch { }
+
+                return new { ok = true };
+            }
+
             if (path == "/api/sites/add")
             {
                 if (modules == null) throw new ApiException(400, "Site setup is unavailable.");
                 try
                 {
-                    var result = modules.AddFromLink(Str("url"));
+                    var result = modules.AddFromLink(Str("url"), stop.Token);
                     return new { chapters = result.Chapters, pages = result.Pages };
                 }
                 catch (ArgumentException e) { throw new ApiException(400, e.Message); }
+                catch (TimeoutException e) { throw new ApiException(504, e.Message); }
             }
 
             if (path == "/api/phone")
@@ -348,6 +537,11 @@ namespace MangaDownloader.Web
                         phone?.Dispose();
                         phone = null;
                     }
+                    Persist(s =>
+                    {
+                        s.PhoneLinksEnabled = phone != null;
+                        s.PhoneLinkToken = phone == null ? null : phone.Token;
+                    });
                     return PhoneState();
                 }
             }
@@ -356,6 +550,27 @@ namespace MangaDownloader.Web
             {
                 try { return EnqueueLinks(body); }
                 catch (ArgumentException e) { throw new ApiException(400, e.Message); }
+            }
+
+            if (parts.Length == 3 && parts[1] == "chapters" && (parts[2] == "list" || parts[2] == "download-selected"))
+            {
+                var url = Str("url");
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+                    throw new ApiException(400, "Enter a valid http(s) URL.");
+                if (parts[2] == "download-selected" && (!args.TryGetProperty("urls", out var selection) || selection.ValueKind != JsonValueKind.Array))
+                    throw new ApiException(400, "Select at least one chapter.");
+                var details = tracker.Fetch(url);
+                if (parts[2] == "list")
+                    return new { title = details.Title, chapters = details.Chapters.Select(c => new { c.Title, c.Url }) };
+                var requested = args.GetProperty("urls").EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : null).ToList();
+                if (requested.Count == 0 || requested.Any(string.IsNullOrEmpty) || requested.Distinct().Count() != requested.Count)
+                    throw new ApiException(400, "Select at least one valid chapter.");
+                var allowed = new HashSet<string>(details.Chapters.Select(c => c.Url), StringComparer.Ordinal);
+                if (requested.Any(chapter => !allowed.Contains(chapter))) throw new ApiException(409, "The chapter list changed. Refresh the details and select again.");
+                if (!library.EnqueueSelected(url, details.Title, requested, "web"))
+                    throw new ApiException(409, "This series is already queued or downloading.");
+                runner.Wake();
+                return new { added = requested.Count };
             }
 
             if (parts.Length == 3 && parts[1] == "queue" && parts[2] == "clear-completed")
@@ -399,15 +614,8 @@ namespace MangaDownloader.Web
             if (parts.Length == 3 && parts[1] == "settings" && parts[2] == "choose-folder")
             {
                 if (!OperatingSystem.IsWindows()) throw new ApiException(400, "Folder selection is available on Windows. Enter a path instead.");
-                // The command is fixed; no browser-provided text is passed to the shell.
-                var picker = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-                foreach (var argument in new[] { "-NoProfile", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a download folder'; if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }; $d.Dispose()" }) picker.ArgumentList.Add(argument);
-                using var process = Process.Start(picker);
-                var output = process.StandardOutput.ReadToEnd();
-                var error = process.StandardError.ReadToEnd();
-                process.WaitForExit();
-                if (process.ExitCode != 0) throw new ApiException(500, "Could not open folder picker: " + error);
-                return new { path = output };
+                var folder = ChooseFolderOnWindows(Str("initialPath"));
+                return new { path = folder };
             }
 
             if (parts.Length == 3 && parts[1] == "settings" && parts[2] == "output")
@@ -471,6 +679,62 @@ namespace MangaDownloader.Web
                 var overwrite = Flag("overwrite");
                 var combine = Flag("combineChapters");
 
+                List<string> convRules = null;
+                if (args.TryGetProperty("conversionRules", out var convProp) && convProp.ValueKind != JsonValueKind.Null)
+                {
+                    convRules = new List<string>();
+                    if (convProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var el in convProp.EnumerateArray())
+                            if (el.ValueKind == JsonValueKind.String)
+                                convRules.Add(el.GetString());
+                    }
+                    else if (convProp.ValueKind == JsonValueKind.String)
+                    {
+                        convRules.AddRange(convProp.GetString().Split(new[] { '\r', '\n', ',' }, StringSplitOptions.RemoveEmptyEntries));
+                    }
+                }
+
+                string proxyUrl = null;
+                if (args.TryGetProperty("proxyUrl", out var proxyProp) && proxyProp.ValueKind == JsonValueKind.String)
+                    proxyUrl = proxyProp.GetString().Trim();
+
+                string flareSolverrUrl = null;
+                if (args.TryGetProperty("flaresolverrUrl", out var fsProp) && fsProp.ValueKind == JsonValueKind.String)
+                    flareSolverrUrl = fsProp.GetString().Trim();
+
+                List<string> tagRules = null;
+                if (args.TryGetProperty("tagRules", out var trProp) && trProp.ValueKind != JsonValueKind.Null)
+                {
+                    tagRules = new List<string>();
+                    if (trProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var el in trProp.EnumerateArray())
+                            if (el.ValueKind == JsonValueKind.String)
+                                tagRules.Add(el.GetString());
+                    }
+                    else if (trProp.ValueKind == JsonValueKind.String)
+                    {
+                        tagRules.AddRange(trProp.GetString().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+                    }
+                }
+
+                Dictionary<string, Dictionary<string, string>> modSettings = null;
+                if (args.TryGetProperty("moduleSettings", out var msProp) && msProp.ValueKind == JsonValueKind.Object)
+                {
+                    modSettings = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var m in msProp.EnumerateObject())
+                    {
+                        if (m.Value.ValueKind == JsonValueKind.Object)
+                        {
+                            var inner = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var s in m.Value.EnumerateObject())
+                                inner[s.Name] = s.Value.ToString();
+                            modSettings[m.Name] = inner;
+                        }
+                    }
+                }
+
                 if (combine != null) download.CombineChapters = combine.Value;
                 if (folder != null) download.OutputDirectory = folder;
                 if (format != null) download.SaveFormat = format.Value;
@@ -481,6 +745,25 @@ namespace MangaDownloader.Web
                 if (overwrite != null) download.SkipExisting = !overwrite.Value;
                 if (concurrency != null) runner.MaxConcurrent = concurrency.Value;
                 if (checkEvery != null) CheckEveryMinutes = checkEvery.Value;
+
+                if (convRules != null)
+                {
+                    download.ConversionRules.Clear();
+                    foreach (var r in convRules)
+                    {
+                        if (!string.IsNullOrWhiteSpace(r))
+                        {
+                            try { download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(r.Trim())); }
+                            catch { }
+                        }
+                    }
+                }
+
+                if (tagRules != null)
+                    download.TagRules = tagRules.Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => r.Trim()).ToList();
+
+                if (modSettings != null)
+                    download.ModuleSettings = modSettings;
 
                 Persist(s =>
                 {
@@ -494,6 +777,11 @@ namespace MangaDownloader.Web
                     s.CombineChapters = combine ?? s.CombineChapters;
                     s.Concurrent = concurrency ?? s.Concurrent;
                     s.CheckEveryMinutes = checkEvery ?? s.CheckEveryMinutes;
+                    if (convRules != null) s.ConversionRules = convRules;
+                    if (proxyUrl != null) s.ProxyUrl = proxyUrl;
+                    if (flareSolverrUrl != null) s.FlareSolverrUrl = flareSolverrUrl;
+                    if (tagRules != null) s.TagRules = tagRules;
+                    if (modSettings != null) s.ModuleSettings = modSettings;
                 });
 
                 return new { saved = settingsFile != null };
@@ -611,6 +899,46 @@ namespace MangaDownloader.Web
             }
 
             throw new ApiException(404, "not found");
+        }
+
+        private static string ChooseFolderOnWindows(string initialPath = null)
+        {
+            var helper = Path.Combine(AppContext.BaseDirectory, BrowserWindowSolver.HelperFileName);
+            if (File.Exists(helper))
+            {
+                try
+                {
+                    var info = new ProcessStartInfo(helper)
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                    };
+                    info.ArgumentList.Add("--pick-folder");
+                    if (!string.IsNullOrEmpty(initialPath))
+                        info.ArgumentList.Add(initialPath);
+
+                    using var proc = Process.Start(info);
+                    var folderOut = proc.StandardOutput.ReadToEnd().Trim();
+                    proc.WaitForExit();
+                    if (proc.ExitCode == 0)
+                        return folderOut;
+                }
+                catch
+                {
+                    // Fall back to PowerShell
+                }
+            }
+
+            var picker = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var argument in new[] { "-NoProfile", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; Add-Type 'using System; using System.Runtime.InteropServices; using System.Windows.Forms; public class ForegroundWindow : IWin32Window { [DllImport(\"user32.dll\")] static extern IntPtr GetForegroundWindow(); public IntPtr Handle { get { return GetForegroundWindow(); } } }'; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a download folder'; if ($d.ShowDialog((New-Object ForegroundWindow)) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }; $d.Dispose()" }) picker.ArgumentList.Add(argument);
+            using var process = Process.Start(picker);
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            if (process.ExitCode != 0) throw new ApiException(500, "Could not open folder picker: " + error);
+            return output;
         }
 
         /// <summary>The full path of a folder downloads can be written to, created if needed.</summary>

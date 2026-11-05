@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -52,17 +54,26 @@ namespace MangaDownloader.Launcher
 
     internal sealed class LauncherContext : ApplicationContext
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private static readonly object LogGate = new object();
+
         private readonly NotifyIcon trayIcon;
+        private readonly Icon appIcon;
         private readonly EventWaitHandle openEvent;
         private readonly RegisteredWaitHandle openWait;
         private readonly string logFile;
         private readonly string appDirectory;
         private readonly string uiProfileDirectory;
         private readonly Control dispatcher;
+        private LauncherSettings settings;
         private Process server;
         private Process browser;
         private string webUiUrl;
+        private bool useDefaultBrowser;
         private bool exiting;
+        private int syncingModules;
 
         public LauncherContext()
         {
@@ -74,9 +85,18 @@ namespace MangaDownloader.Launcher
             uiProfileDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "manga-downloader", "webview-ui-profile");
 
+            try
+            {
+                appIcon = AppIcon.Create(32);
+            }
+            catch
+            {
+                appIcon = SystemIcons.Application;
+            }
+
             trayIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = appIcon,
                 Text = "Manga Downloader is starting…",
                 Visible = true,
                 ContextMenuStrip = BuildMenu()
@@ -95,11 +115,11 @@ namespace MangaDownloader.Launcher
                 startup.Dispose();
                 try
                 {
-                    var settings = LoadSettings(Path.Combine(appDirectory, "launcher.json"));
-                    var marker = Path.Combine(Path.GetDirectoryName(logFile), "modules", "lua", ".setup-complete");
+                    settings = LoadSettings(Path.Combine(appDirectory, "launcher.json"));
+                    var marker = Path.Combine(Path.GetDirectoryName(logFile) ?? "", "modules", "lua", ".setup-complete");
                     if (string.IsNullOrWhiteSpace(settings.Modules) && !File.Exists(marker))
                     {
-                        using var setup = new SetupWindow(OpenLog);
+                        using var setup = new SetupWindow(OpenLog, appIcon);
                         setup.Show();
                         while (!exiting)
                         {
@@ -128,10 +148,142 @@ namespace MangaDownloader.Launcher
         {
             var menu = new ContextMenuStrip();
             menu.Items.Add("Open Manga Downloader", null, (_, __) => OpenWebUi());
+            menu.Items.Add("Sync site modules", null, (_, __) => SyncModulesInBackground());
             menu.Items.Add("Open log", null, (_, __) => OpenLog());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, (_, __) => ExitLauncher());
             return menu;
+        }
+
+        private void RotateLogIfNeeded()
+        {
+            try
+            {
+                if (File.Exists(logFile))
+                {
+                    var fi = new FileInfo(logFile);
+                    if (fi.Length > 2 * 1024 * 1024)
+                    {
+                        var dir = Path.GetDirectoryName(logFile) ?? "";
+                        var oldLog = Path.Combine(dir, "launcher.old.log");
+                        File.Copy(logFile, oldLog, overwrite: true);
+                        File.WriteAllText(logFile, string.Empty);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void AppendLog(string line)
+        {
+            if (line == null)
+                return;
+
+            lock (LogGate)
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(logFile);
+                    if (!string.IsNullOrEmpty(dir))
+                        Directory.CreateDirectory(dir);
+
+                    RotateLogIfNeeded();
+                    File.AppendAllText(logFile, line + Environment.NewLine);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        private string GetResolvedModulesDirectory()
+        {
+            var mod = settings?.Modules;
+            if (!string.IsNullOrWhiteSpace(mod))
+            {
+                return Path.GetFullPath(Path.Combine(appDirectory, Environment.ExpandEnvironmentVariables(mod)));
+            }
+            return Path.Combine(Path.GetDirectoryName(logFile) ?? "", "modules", "lua");
+        }
+
+        private void SyncModulesInBackground()
+        {
+            if (Interlocked.CompareExchange(ref syncingModules, 1, 0) != 0)
+            {
+                trayIcon.ShowBalloonTip(2500, "Manga Downloader", "Module sync is already in progress.", ToolTipIcon.Info);
+                return;
+            }
+
+            trayIcon.ShowBalloonTip(2500, "Manga Downloader", "Syncing site modules…", ToolTipIcon.Info);
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    var executable = Path.Combine(appDirectory, "manga-downloader.exe");
+                    if (!File.Exists(executable))
+                    {
+                        trayIcon.ShowBalloonTip(3000, "Manga Downloader", "Could not find manga-downloader.exe.", ToolTipIcon.Error);
+                        return;
+                    }
+
+                    var modulesDir = GetResolvedModulesDirectory();
+                    AppendLog($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting background module sync with modules path: {modulesDir}");
+
+                    var syncInfo = new ProcessStartInfo(executable)
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+                    syncInfo.ArgumentList.Add("modules");
+                    syncInfo.ArgumentList.Add("sync");
+                    syncInfo.ArgumentList.Add("--modules");
+                    syncInfo.ArgumentList.Add(modulesDir);
+
+                    using var syncProc = Process.Start(syncInfo);
+                    if (syncProc == null)
+                    {
+                        trayIcon.ShowBalloonTip(3000, "Manga Downloader", "Could not start module sync process.", ToolTipIcon.Error);
+                        return;
+                    }
+
+                    var stdout = syncProc.StandardOutput.ReadToEndAsync();
+                    var stderr = syncProc.StandardError.ReadToEndAsync();
+
+                    if (!syncProc.WaitForExit(300000))
+                    {
+                        syncProc.Kill(true);
+                        AppendLog("Module sync timed out after 5 minutes.");
+                        trayIcon.ShowBalloonTip(4000, "Manga Downloader", "Module sync timed out.", ToolTipIcon.Warning);
+                        return;
+                    }
+
+                    var outText = stdout.GetAwaiter().GetResult();
+                    var errText = stderr.GetAwaiter().GetResult();
+
+                    if (!string.IsNullOrWhiteSpace(outText)) AppendLog(outText.Trim());
+                    if (!string.IsNullOrWhiteSpace(errText)) AppendLog(errText.Trim());
+
+                    if (syncProc.ExitCode == 0)
+                    {
+                        trayIcon.ShowBalloonTip(3000, "Manga Downloader", "Site modules updated successfully.", ToolTipIcon.Info);
+                    }
+                    else
+                    {
+                        trayIcon.ShowBalloonTip(4000, "Manga Downloader", "Module sync failed. Check launcher.log for details.", ToolTipIcon.Warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("Module sync failed: " + ex.Message);
+                    trayIcon.ShowBalloonTip(4000, "Manga Downloader", "Module sync error: " + ex.Message, ToolTipIcon.Error);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref syncingModules, 0);
+                }
+            });
         }
 
         private void StartServer(string appDirectory)
@@ -142,14 +294,13 @@ namespace MangaDownloader.Launcher
             if (!File.Exists(executable))
                 throw new FileNotFoundException("manga-downloader.exe must be next to the launcher.", executable);
 
-            var settings = LoadSettings(settingsFile);
+            settings = LoadSettings(settingsFile);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(logFile));
-            File.AppendAllText(logFile, $"{Environment.NewLine}[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting Manga Downloader{Environment.NewLine}");
+            AppendLog($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting Manga Downloader");
 
             if (string.IsNullOrWhiteSpace(settings.Modules))
             {
-                settings.Modules = Path.Combine(Path.GetDirectoryName(logFile), "modules", "lua");
+                settings.Modules = Path.Combine(Path.GetDirectoryName(logFile) ?? "", "modules", "lua");
                 var marker = Path.Combine(settings.Modules, ".setup-complete");
                 if (!File.Exists(marker))
                 {
@@ -217,6 +368,9 @@ namespace MangaDownloader.Launcher
         {
             try
             {
+                if (!File.Exists(file))
+                    return new LauncherSettings();
+
                 return JsonSerializer.Deserialize<LauncherSettings>(File.ReadAllText(file),
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new LauncherSettings();
             }
@@ -245,15 +399,6 @@ namespace MangaDownloader.Launcher
             }
         }
 
-        private void AppendLog(string line)
-        {
-            if (line == null)
-                return;
-
-            try { File.AppendAllText(logFile, line + Environment.NewLine); }
-            catch (IOException) { }
-        }
-
         private void OpenWebUi()
         {
             if (dispatcher.InvokeRequired)
@@ -262,8 +407,27 @@ namespace MangaDownloader.Launcher
                 return;
             }
 
-            if (browser != null || exiting)
+            if (exiting)
                 return;
+
+            if (useDefaultBrowser)
+            {
+                OpenInDefaultBrowser();
+                return;
+            }
+
+            if (browser != null)
+            {
+                try
+                {
+                    if (!browser.HasExited && browser.MainWindowHandle != IntPtr.Zero)
+                    {
+                        SetForegroundWindow(browser.MainWindowHandle);
+                        return;
+                    }
+                }
+                catch { }
+            }
 
             if (string.IsNullOrWhiteSpace(webUiUrl))
             {
@@ -300,20 +464,28 @@ namespace MangaDownloader.Launcher
                             opened.Dispose();
                             return;
                         }
-                        try { dispatcher.BeginInvoke(new Action(() =>
+                        try
                         {
-                            browser = null;
-                            opened.Dispose();
-                            if (exiting)
-                                return;
-                            if (exitCode == 4)
+                            dispatcher.BeginInvoke(new Action(() =>
                             {
-                                AppendLog("The embedded app window could not start; opening the web UI in the default browser.");
-                                OpenInDefaultBrowser();
-                            }
-                            else
-                                ExitLauncher();
-                        })); }
+                                browser = null;
+                                opened.Dispose();
+                                if (exiting)
+                                    return;
+
+                                if (exitCode == 4)
+                                {
+                                    useDefaultBrowser = true;
+                                    AppendLog("The embedded app window could not start; opening the web UI in the default browser.");
+                                    OpenInDefaultBrowser();
+                                }
+                                else if (settings == null || !settings.CloseToTray)
+                                {
+                                    ExitLauncher();
+                                }
+                                // When CloseToTray is true, closing the window leaves the server and tray icon running.
+                            }));
+                        }
                         catch (InvalidOperationException) { opened.Dispose(); }
                     };
                     browser.BeginErrorReadLine();
@@ -370,6 +542,7 @@ namespace MangaDownloader.Launcher
             openEvent?.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
+            appIcon?.Dispose();
             dispatcher.Dispose();
             server?.Dispose();
             base.ExitThreadCore();
@@ -380,50 +553,161 @@ namespace MangaDownloader.Launcher
 
     internal sealed class SetupWindow : Form
     {
+        private readonly Label title;
         private readonly Label status;
         private readonly ProgressBar progress;
         private readonly Button retry;
         private readonly Button cancel;
+        private readonly Button log;
         private TaskCompletionSource<bool> decision;
         private bool allowClose;
 
-        public SetupWindow(Action openLog)
+        public SetupWindow(Action openLog, Icon icon = null)
         {
-            Text = "Manga Downloader setup";
+            Text = "Manga Downloader Setup";
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(480, 180);
+            ClientSize = new Size(500, 210);
             FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; MinimizeBox = false;
-            status = new Label { Left = 20, Top = 20, Width = 440, Height = 55, Text = "Downloading site modules. This may take a few minutes." };
-            progress = new ProgressBar { Left = 20, Top = 82, Width = 440, Height = 18, Style = ProgressBarStyle.Marquee };
-            retry = new Button { Left = 20, Top = 120, Width = 90, Text = "Retry", Enabled = false };
-            cancel = new Button { Left = 120, Top = 120, Width = 90, Text = "Exit", Enabled = false };
-            var log = new Button { Left = 220, Top = 120, Width = 100, Text = "Open log" };
+            MaximizeBox = false;
+            MinimizeBox = false;
+            BackColor = Color.White;
+
+            if (icon != null)
+            {
+                Icon = icon;
+            }
+
+            title = new Label
+            {
+                Left = 24,
+                Top = 20,
+                Width = 452,
+                Height = 26,
+                Text = "Setting up Manga Downloader",
+                Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(17, 24, 39)
+            };
+
+            status = new Label
+            {
+                Left = 24,
+                Top = 50,
+                Width = 452,
+                Height = 44,
+                Text = "Downloading site modules. This may take a few minutes depending on your internet connection.",
+                Font = new Font("Segoe UI", 9.5f),
+                ForeColor = Color.FromArgb(71, 85, 105)
+            };
+
+            progress = new ProgressBar
+            {
+                Left = 24,
+                Top = 104,
+                Width = 452,
+                Height = 10,
+                Style = ProgressBarStyle.Marquee
+            };
+
+            var bottomPanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 54,
+                BackColor = Color.FromArgb(248, 250, 252)
+            };
+            bottomPanel.Paint += (s, pe) =>
+            {
+                using var linePen = new Pen(Color.FromArgb(226, 232, 240), 1f);
+                pe.Graphics.DrawLine(linePen, 0, 0, bottomPanel.Width, 0);
+            };
+
+            retry = new Button
+            {
+                Left = 24,
+                Top = 11,
+                Width = 90,
+                Height = 32,
+                Text = "Retry",
+                Enabled = false,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                BackColor = Color.FromArgb(79, 70, 229),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            retry.FlatAppearance.BorderSize = 0;
+
+            cancel = new Button
+            {
+                Left = 124,
+                Top = 11,
+                Width = 90,
+                Height = 32,
+                Text = "Exit",
+                Enabled = false,
+                Font = new Font("Segoe UI", 9.5f),
+                FlatStyle = FlatStyle.System
+            };
+
+            log = new Button
+            {
+                Left = 386,
+                Top = 11,
+                Width = 90,
+                Height = 32,
+                Text = "Open log",
+                Font = new Font("Segoe UI", 9.5f),
+                FlatStyle = FlatStyle.System
+            };
+
             retry.Click += (_, __) => decision?.TrySetResult(true);
             cancel.Click += (_, __) => decision?.TrySetResult(false);
             log.Click += (_, __) => openLog();
-            FormClosing += (_, e) => { if (!allowClose) { e.Cancel = true; decision?.TrySetResult(false); } };
-            Controls.AddRange(new Control[] { status, progress, retry, cancel, log });
+            FormClosing += (_, e) =>
+            {
+                if (!allowClose)
+                {
+                    e.Cancel = true;
+                    decision?.TrySetResult(false);
+                }
+            };
+
+            bottomPanel.Controls.Add(retry);
+            bottomPanel.Controls.Add(cancel);
+            bottomPanel.Controls.Add(log);
+
+            Controls.AddRange(new Control[] { title, status, progress, bottomPanel });
         }
 
         public void Working()
         {
-            status.Text = "Downloading site modules. This may take a few minutes.";
+            title.Text = "Setting up Manga Downloader";
+            status.Text = "Downloading site modules. This may take a few minutes depending on your internet connection.";
+            status.ForeColor = Color.FromArgb(71, 85, 105);
             progress.Style = ProgressBarStyle.Marquee;
             retry.Enabled = cancel.Enabled = false;
         }
 
         public Task<bool> Failed(string message)
         {
+            title.Text = "Setup Encountered an Issue";
             status.Text = message;
+            status.ForeColor = Color.FromArgb(220, 38, 38);
             progress.Style = ProgressBarStyle.Blocks;
             retry.Enabled = cancel.Enabled = true;
             decision = new TaskCompletionSource<bool>();
             return decision.Task;
         }
 
-        protected override void Dispose(bool disposing) { allowClose = true; base.Dispose(disposing); }
-        public new void Close() { allowClose = true; base.Close(); }
+        protected override void Dispose(bool disposing)
+        {
+            allowClose = true;
+            base.Dispose(disposing);
+        }
+
+        public new void Close()
+        {
+            allowClose = true;
+            base.Close();
+        }
     }
 
     internal sealed class LauncherSettings
@@ -431,5 +715,90 @@ namespace MangaDownloader.Launcher
         public string Modules { get; set; }
         public int Port { get; set; } = 8780;
         public bool BrowserChallenges { get; set; } = true;
+        public bool CloseToTray { get; set; } = true;
+    }
+
+    internal static class AppIcon
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+
+        public static Icon Create(int size = 32)
+        {
+            using var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.Clear(Color.Transparent);
+
+                float s = size;
+                // Indigo rounded rectangle background (#4F46E5)
+                float pad = s * 0.05f;
+                var bgRect = new RectangleF(pad, pad, s - 2 * pad, s - 2 * pad);
+                float radius = s * 0.22f;
+                using var bgPath = CreateRoundedRect(bgRect, radius);
+                using var bgBrush = new SolidBrush(Color.FromArgb(79, 70, 229));
+                g.FillPath(bgBrush, bgPath);
+
+                using var whiteBrush = new SolidBrush(Color.FromArgb(248, 250, 252));
+
+                // Crisp downward arrow
+                var arrow = new PointF[]
+                {
+                    new PointF(s * 0.43f, s * 0.16f),
+                    new PointF(s * 0.57f, s * 0.16f),
+                    new PointF(s * 0.57f, s * 0.35f),
+                    new PointF(s * 0.70f, s * 0.35f),
+                    new PointF(s * 0.50f, s * 0.53f),
+                    new PointF(s * 0.30f, s * 0.35f),
+                    new PointF(s * 0.43f, s * 0.35f)
+                };
+                g.FillPolygon(whiteBrush, arrow);
+
+                // Open book / manga pages
+                var leftPage = new PointF[]
+                {
+                    new PointF(s * 0.20f, s * 0.60f),
+                    new PointF(s * 0.46f, s * 0.65f),
+                    new PointF(s * 0.46f, s * 0.81f),
+                    new PointF(s * 0.20f, s * 0.76f)
+                };
+                g.FillPolygon(whiteBrush, leftPage);
+
+                var rightPage = new PointF[]
+                {
+                    new PointF(s * 0.54f, s * 0.65f),
+                    new PointF(s * 0.80f, s * 0.60f),
+                    new PointF(s * 0.80f, s * 0.76f),
+                    new PointF(s * 0.54f, s * 0.81f)
+                };
+                g.FillPolygon(whiteBrush, rightPage);
+            }
+
+            var hIcon = bmp.GetHicon();
+            try
+            {
+                using var temp = Icon.FromHandle(hIcon);
+                return (Icon)temp.Clone();
+            }
+            finally
+            {
+                DestroyIcon(hIcon);
+            }
+        }
+
+        private static GraphicsPath CreateRoundedRect(RectangleF rect, float radius)
+        {
+            var path = new GraphicsPath();
+            float d = radius * 2;
+            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
     }
 }
