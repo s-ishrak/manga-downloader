@@ -64,7 +64,11 @@ namespace MangaDownloader.Lua.Tests
                 try { ctx = await listener.GetContextAsync(); }
                 catch (Exception e) when (e is HttpListenerException || e is ObjectDisposedException) { return; }
 
-                var cleared = (ctx.Request.Headers["Cookie"] ?? "").Contains("cf_clearance=passed");
+                var browserOnly = ctx.Request.Url.AbsolutePath.StartsWith("/browser-only");
+                var navigationOnly = ctx.Request.Url.AbsolutePath.StartsWith("/navigation-only");
+                var cleared = (ctx.Request.Headers["Cookie"] ?? "").Contains("cf_clearance=passed") &&
+                    (!browserOnly || ctx.Request.Headers["Sec-Fetch-Site"] != null) &&
+                    (!navigationOnly || ctx.Request.Headers["Sec-Fetch-Mode"] == "navigate");
                 var never = ctx.Request.Url.AbsolutePath.StartsWith("/never");
                 string html;
 
@@ -73,7 +77,8 @@ namespace MangaDownloader.Lua.Tests
                     lock (userAgentsWithClearance)
                         userAgentsWithClearance.Add(ctx.Request.UserAgent);
 
-                    ctx.Response.StatusCode = 200;
+                    ctx.Response.StatusCode = ctx.Request.Url.AbsolutePath.EndsWith("/missing") ? 404 : 200;
+                    ctx.Response.AppendHeader("Set-Cookie", "browser_session=collected; HttpOnly; Path=/gallery");
                     html = "<html><head><title>Gallery</title></head><body><h1>Real page</h1></body></html>";
                 }
                 else
@@ -88,6 +93,17 @@ namespace MangaDownloader.Lua.Tests
 
                 var bytes = Encoding.UTF8.GetBytes(html);
                 ctx.Response.ContentType = "text/html; charset=utf-8";
+                if (cleared && ctx.Request.Url.AbsolutePath.EndsWith("/asset"))
+                {
+                    bytes = new byte[] { 0, 128, 255, 1, 0, 77 };
+                    ctx.Response.ContentType = "application/octet-stream";
+                }
+                if (cleared && ctx.Request.Url.AbsolutePath.EndsWith("/post"))
+                {
+                    using var reader = new StreamReader(ctx.Request.InputStream);
+                    bytes = Encoding.UTF8.GetBytes(ctx.Request.HttpMethod + "|" + ctx.Request.Headers["X-Test"] + "|" + await reader.ReadToEndAsync());
+                    ctx.Response.ContentType = "text/plain; charset=utf-8";
+                }
                 ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
                 ctx.Response.Close();
             }
@@ -95,6 +111,96 @@ namespace MangaDownloader.Lua.Tests
 
         private BrowserWindowSolver Solver(string helper, int timeout = 60, List<string> log = null) =>
             new BrowserWindowSolver(profile, timeout, log == null ? (Action<string>)(_ => { }) : log.Add, helper, hidden: true);
+
+        [Fact]
+        public void SeparateChromiumAutomaticallyCollectsTheSessionAndClearsTheHttpRetry()
+        {
+            var browser = ChromiumWindowSolver.FindBrowser();
+            Assert.NotNull(browser);
+            var log = new List<string>();
+            var solver = new ChromiumWindowSolver(profile, 60, log.Add, browser, hidden: true);
+            var jar = new CookieJar();
+            using var client = new HttpClientBackend();
+            var backend = new CloudflareBackend(new CookieBackend(client, jar), jar, solver);
+
+            var result = backend.Send(new HttpRequest { Url = $"http://127.0.0.1:{port}/gallery" });
+
+            Assert.Equal(200, result.StatusCode);
+            Assert.Contains("Real page", result.Body);
+            var clearance = jar.Snapshot().Single(c => c.Name == "cf_clearance");
+            Assert.Equal("passed", clearance.Value);
+            Assert.NotNull(clearance.Expires);
+            var session = jar.Snapshot().Single(c => c.Name == "browser_session");
+            Assert.Equal("collected", session.Value);
+            Assert.Equal("/gallery", session.Path);
+            Assert.Contains(log, line => line.Contains("Automatically collected"));
+            Assert.Contains(log, line => line.Contains("A separate " + Path.GetFileNameWithoutExtension(browser) + " window"));
+            Assert.True(Directory.Exists(Path.Combine(profile, Path.GetFileNameWithoutExtension(browser))));
+            lock (userAgentsWithClearance)
+                Assert.Contains(userAgentsWithClearance, ua => ua != null && ua.Contains("Chrome/"));
+        }
+
+        [Fact]
+        public void SeparateChromiumTimesOutWithoutOpeningAPastePrompt()
+        {
+            var browser = ChromiumWindowSolver.FindBrowser();
+            Assert.NotNull(browser);
+            var solver = new ChromiumWindowSolver(profile, 4, browserPath: browser, hidden: true);
+
+            var error = Assert.Throws<SolverCancelledException>(() =>
+                solver.Solve(new HttpRequest { Url = $"http://127.0.0.1:{port}/never" }));
+
+            Assert.Contains("timed out", error.Message);
+        }
+
+        [Fact]
+        public void RejectedCookieTransferReusesTheVerifiedBrowserForPagesPostsAndBinaryDownloads()
+        {
+            var browser = ChromiumWindowSolver.FindBrowser();
+            Assert.NotNull(browser);
+            var log = new List<string>();
+            var solver = new ChromiumWindowSolver(profile, 60, log.Add, browser, hidden: true);
+            var jar = new CookieJar();
+            using var client = new HttpClientBackend();
+            using var backend = new CloudflareBackend(new CookieBackend(client, jar), jar, solver) { Log = log.Add };
+            var root = $"http://127.0.0.1:{port}/browser-only";
+
+            Assert.Contains("Real page", backend.Send(new HttpRequest { Url = root + "/gallery?s=two+words&post_type=wp-manga" }).Body);
+            Assert.Contains(log, line => line.Contains("using the verified browser connection"));
+            Assert.Contains("Real page", backend.Send(new HttpRequest { Url = root + "/next" }).Body);
+            var post = new HttpRequest { Url = root + "/post", Method = "POST", Body = "value='quoted'&newline=\n&text=বাংলা" };
+            post.Headers["X-Test"] = "request-header";
+            Assert.Equal("POST|request-header|" + post.Body, backend.Send(post).Body);
+            using var output = new MemoryStream();
+            var result = backend.Download(new HttpRequest { Url = root + "/asset" }, output);
+            Assert.Equal(200, result.StatusCode);
+            Assert.Equal("application/octet-stream", result.ContentType);
+            Assert.Equal(new byte[] { 0, 128, 255, 1, 0, 77 }, output.ToArray());
+            Assert.Equal("", result.Body);
+            Assert.Single(log.Where(line => line.StartsWith("A separate ")));
+        }
+
+        [Fact]
+        public void RejectedBrowserFetchFallsBackToPageNavigation()
+        {
+            var browser = ChromiumWindowSolver.FindBrowser();
+            Assert.NotNull(browser);
+            var solver = new ChromiumWindowSolver(profile, 60, browserPath: browser, hidden: true);
+            var jar = new CookieJar();
+            using var client = new HttpClientBackend();
+            using var backend = new CloudflareBackend(new CookieBackend(client, jar), jar, solver);
+            var root = $"http://127.0.0.1:{port}/navigation-only";
+
+            var first = backend.Send(new HttpRequest { Url = root + "/gallery" });
+            Assert.Equal(200, first.StatusCode);
+            Assert.Equal("text/html", first.ContentType);
+            Assert.Contains("Real page", first.Body);
+            var next = backend.Send(new HttpRequest { Url = root + "/search?s=two+words&post_type=wp-manga" });
+            Assert.Equal(200, next.StatusCode);
+            Assert.Contains("Real page", next.Body);
+            Assert.EndsWith("/search?s=two+words&post_type=wp-manga", next.Url);
+            Assert.Equal(404, backend.Send(new HttpRequest { Url = root + "/missing" }).StatusCode);
+        }
 
         [Fact]
         public void TheWindowClosesItselfOnceThePageIsThroughAndHandsOverCookiesAndUserAgent()

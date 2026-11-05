@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using MangaDownloader.Net;
 using Xunit;
@@ -149,6 +150,7 @@ namespace MangaDownloader.Lua.Tests
         [Fact]
         public void FollowsRedirectsKeepingCookiesFromEveryHop()
         {
+            using var cancellation = new CancellationTokenSource();
             var inner = new ScriptedHttp(req =>
             {
                 switch (req.Url)
@@ -159,11 +161,12 @@ namespace MangaDownloader.Lua.Tests
                 }
             });
 
-            var result = new CookieBackend(inner, new CookieJar()).Send(new HttpRequest { Url = "https://site.test/start", Method = "POST", Body = "x=1" });
+            var result = new CookieBackend(inner, new CookieJar()).Send(new HttpRequest { Url = "https://site.test/start", Method = "POST", Body = "x=1", CancellationToken = cancellation.Token, AllowInteractiveChallenge = false });
 
             Assert.Equal("done", result.Body);
             Assert.Equal("https://site.test/end", result.Url);
             Assert.Equal(3, inner.Requests.Count);
+            Assert.All(inner.Requests, r => { Assert.Equal(cancellation.Token, r.CancellationToken); Assert.False(r.AllowInteractiveChallenge); });
             Assert.Equal("GET", inner.Requests[1].Method); // 302 after POST -> GET
             Assert.Null(inner.Requests[1].Body);
             Assert.Equal("a", inner.Requests[1].Cookies["hop1"]);
@@ -219,14 +222,99 @@ namespace MangaDownloader.Lua.Tests
         private sealed class FakeSolver : IChallengeSolver
         {
             public int Calls;
+            public string Token = "token";
+            public Exception Error;
+            public IHttpBackend BrowserSession;
 
             public SolverSolution Solve(HttpRequest request)
             {
                 Calls++;
-                var s = new SolverSolution { Status = 200, UserAgent = "SolverBrowser/1.0", Body = "<html>real</html>" };
-                s.Cookies.Add(new CookieEntry { Name = "cf_clearance", Value = "token", Domain = ".site.test", Expires = DateTime.UtcNow.AddHours(1) });
+                if (Error != null)
+                    throw Error;
+
+                var s = new SolverSolution { Status = 200, UserAgent = "SolverBrowser/1.0", Body = "<html>real</html>", BrowserSession = BrowserSession };
+                s.Cookies.Add(new CookieEntry { Name = "cf_clearance", Value = Token, Domain = ".site.test", Expires = DateTime.UtcNow.AddHours(1) });
                 return s;
             }
+        }
+
+        private sealed class FakeBrowserSession : IHttpBackend, IDisposable
+        {
+            public bool Accepts = true;
+            public int Calls;
+            public int DisposeCalls;
+            public HttpResult Send(HttpRequest request)
+            {
+                Calls++;
+                return Accepts ? new HttpResult { StatusCode = 200, Body = "browser page" } : Challenge();
+            }
+            public HttpResult Download(HttpRequest request, Stream destination) => throw new NotSupportedException();
+            public void Dispose() => DisposeCalls++;
+        }
+
+        [Fact]
+        public void AcceptedCookieTransferClosesTheUnusedBrowserConnection()
+        {
+            var session = new FakeBrowserSession();
+            var solver = new FakeSolver { BrowserSession = session };
+            var jar = new CookieJar();
+            var inner = new ScriptedHttp(req => req.Cookies.ContainsKey("cf_clearance")
+                ? new HttpResult { StatusCode = 200, Body = "page" } : Challenge());
+            using (var backend = new CloudflareBackend(new CookieBackend(inner, jar), jar, solver))
+            {
+                Assert.Equal("page", backend.Send(new HttpRequest { Url = "https://site.test/" }).Body);
+                Assert.Equal(0, session.Calls);
+                Assert.Equal(1, session.DisposeCalls);
+            }
+            Assert.Equal(1, session.DisposeCalls);
+        }
+
+        [Fact]
+        public void BrowserConnectionIsReusedOnlyForItsOriginAndDisposedAtShutdown()
+        {
+            var session = new FakeBrowserSession();
+            var solver = new FakeSolver { BrowserSession = session };
+            var backend = new CloudflareBackend(new ScriptedHttp(_ => Challenge()), new CookieJar(), solver);
+            try
+            {
+                Assert.Equal("browser page", backend.Send(new HttpRequest { Url = "https://site.test/a" }).Body);
+                Assert.Equal("browser page", backend.Send(new HttpRequest { Url = "https://site.test/b" }).Body);
+                Assert.Throws<IOException>(() => backend.Send(new HttpRequest { Url = "http://site.test/", AllowInteractiveChallenge = false }));
+                Assert.Equal(2, session.Calls);
+                Assert.Equal(1, solver.Calls);
+                Assert.Equal(0, session.DisposeCalls);
+            }
+            finally { backend.Dispose(); }
+            backend.Dispose();
+            Assert.Equal(1, session.DisposeCalls);
+        }
+
+        [Fact]
+        public void RejectedBrowserConnectionIsClosedBeforeTryingTheNextSolver()
+        {
+            var session = new FakeBrowserSession { Accepts = false };
+            var first = new FakeSolver { BrowserSession = session };
+            var second = new FakeSolver { Token = "accepted" };
+            var jar = new CookieJar();
+            var inner = new ScriptedHttp(req => req.Cookies.TryGetValue("cf_clearance", out var token) && token == "accepted"
+                ? new HttpResult { StatusCode = 200, Body = "page" } : Challenge());
+            using var backend = new CloudflareBackend(new CookieBackend(inner, jar), jar, new FallbackSolver(first, second));
+
+            Assert.Equal("page", backend.Send(new HttpRequest { Url = "https://site.test/" }).Body);
+            Assert.Equal(1, session.Calls);
+            Assert.Equal(1, session.DisposeCalls);
+            Assert.Equal(1, first.Calls);
+            Assert.Equal(1, second.Calls);
+        }
+
+        [Fact]
+        public void SiteDetectionDoesNotOpenAChallengeOrWaitForASolver()
+        {
+            var solver = new FakeSolver();
+            var backend = new CloudflareBackend(new ScriptedHttp(_ => Challenge()), new CookieJar(), solver);
+            var error = Assert.Throws<IOException>(() => backend.Send(new HttpRequest { Url = "https://site.test/", AllowInteractiveChallenge = false }));
+            Assert.Contains("could not be inspected automatically", error.Message);
+            Assert.Equal(0, solver.Calls);
         }
 
         [Fact]
@@ -320,6 +408,80 @@ namespace MangaDownloader.Lua.Tests
             var e = Assert.Throws<IOException>(() => backend.Send(new HttpRequest { Url = "https://site.test/" }));
             Assert.Contains("not cleared", e.Message);
             Assert.Equal(1, solver.Calls);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void RejectedCookiesTryNestedFallbacksBeforeReportingSuccess(bool streamed)
+        {
+            var jar = new CookieJar();
+            var rejected = new FakeSolver { Token = "rejected" };
+            var popup = new FakeSolver { Token = "also-rejected" };
+            var paste = new FakeSolver { Token = "accepted" };
+            var unused = new FakeSolver();
+            var inner = new ScriptedHttp(req =>
+                req.Cookies.TryGetValue("cf_clearance", out var token) && token == "accepted"
+                    ? new HttpResult { StatusCode = 200, Body = "page" } : Challenge(streamed));
+            var backend = new CloudflareBackend(new CookieBackend(inner, jar), jar,
+                new FallbackSolver(rejected, new FallbackSolver(popup, paste), unused));
+            var solved = 0;
+            backend.Solved += () =>
+            {
+                Assert.Equal("accepted", jar.CookiesFor(new Uri("https://site.test/"))["cf_clearance"]);
+                solved++;
+            };
+
+            using var output = new MemoryStream();
+            var request = new HttpRequest { Url = "https://site.test/page" };
+            var result = streamed ? backend.Download(request, output) : backend.Send(request);
+
+            Assert.Equal(200, result.StatusCode);
+            Assert.Equal("page", streamed ? Encoding.UTF8.GetString(output.ToArray()) : result.Body);
+            Assert.Equal(1, rejected.Calls);
+            Assert.Equal(1, popup.Calls);
+            Assert.Equal(1, paste.Calls);
+            Assert.Equal(0, unused.Calls);
+            Assert.Equal(4, inner.Requests.Count);
+            Assert.Equal(1, solved);
+            Assert.Equal("SolverBrowser/1.0", inner.Requests.Last().Headers["User-Agent"]);
+        }
+
+        [Fact]
+        public void ExhaustedFallbacksDoNotReportRejectedCookiesAsSolved()
+        {
+            var first = new FakeSolver();
+            var second = new FakeSolver();
+            var jar = new CookieJar();
+            var inner = new ScriptedHttp(_ => Challenge());
+            var backend = new CloudflareBackend(new CookieBackend(inner, jar), jar, new FallbackSolver(first, second));
+            var solved = 0;
+            backend.Solved += () => solved++;
+
+            var error = Assert.Throws<IOException>(() => backend.Send(new HttpRequest { Url = "https://site.test/" }));
+
+            Assert.Contains("cookies were rejected", error.Message);
+            Assert.Equal(1, first.Calls);
+            Assert.Equal(1, second.Calls);
+            Assert.Equal(3, inner.Requests.Count);
+            Assert.Equal(0, solved);
+        }
+
+        [Fact]
+        public void CancellingAfterRejectedCookiesDoesNotAskAnotherSolver()
+        {
+            var rejected = new FakeSolver();
+            var cancelled = new FakeSolver { Error = new SolverCancelledException("window closed") };
+            var unused = new FakeSolver();
+            var jar = new CookieJar();
+            var backend = new CloudflareBackend(new CookieBackend(new ScriptedHttp(_ => Challenge()), jar), jar,
+                new FallbackSolver(rejected, new FallbackSolver(cancelled, unused)));
+
+            Assert.Throws<SolverCancelledException>(() => backend.Send(new HttpRequest { Url = "https://site.test/" }));
+
+            Assert.Equal(1, rejected.Calls);
+            Assert.Equal(1, cancelled.Calls);
+            Assert.Equal(0, unused.Calls);
         }
 
         [Fact]
@@ -428,6 +590,29 @@ namespace MangaDownloader.Lua.Tests
 
     public class ProxyTests
     {
+        [Fact]
+        public async Task CancellationStopsAnUnresponsiveHttpRequestThroughTheCookieLayer()
+        {
+            var port = CloudflareTests.FreePort();
+            using var listener = new HttpListener();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            listener.Start();
+            using var transport = new HttpClientBackend();
+            var backend = new CookieBackend(transport, new CookieJar());
+            using var cancellation = new CancellationTokenSource();
+            var accepted = listener.GetContextAsync();
+            var request = Task.Run(() => backend.Send(new HttpRequest { Url = $"http://127.0.0.1:{port}/", CancellationToken = cancellation.Token }));
+            try
+            {
+                Assert.Same(accepted, await Task.WhenAny(accepted, Task.Delay(5000)));
+                await accepted;
+                cancellation.Cancel();
+                Assert.Same(request, await Task.WhenAny(request, Task.Delay(2000)));
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await request; });
+            }
+            finally { cancellation.Cancel(); listener.Close(); }
+        }
+
         [Fact]
         public void ParsesProxyUrls()
         {

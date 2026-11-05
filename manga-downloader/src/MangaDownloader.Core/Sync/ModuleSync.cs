@@ -105,13 +105,44 @@ namespace MangaDownloader.Core.Sync
         private readonly IHttpBackend http;
         private readonly Action<string> log;
 
+        public HashSet<string> DisabledModules { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public ModuleSync(IHttpBackend http, Action<string> log = null)
         {
             this.http = http;
             this.log = log ?? (_ => { });
         }
 
-        public SyncResult Sync(GitHubLocation source, string localDirectory)
+        public SyncResult SyncAll(IEnumerable<RepositorySource> sources, string targetDirectory, IEnumerable<string> extraDisabled = null)
+        {
+            var combined = new SyncResult();
+            if (sources == null) return combined;
+
+            var extra = (extraDisabled ?? Enumerable.Empty<string>()).Concat(DisabledModules).ToList();
+            var ordered = sources.OrderBy(s => s.Priority).ToList();
+            foreach (var source in ordered)
+            {
+                if (string.IsNullOrEmpty(source.RemotePath))
+                    continue;
+
+                GitHubLocation location;
+                try { location = GitHubLocation.Parse(source.RemotePath); }
+                catch (FormatException) { continue; }
+
+                log($"syncing repository \"{source.Name}\" ({location})");
+                var disabled = source.DisabledModules.Concat(extra);
+                var sub = Sync(location, targetDirectory, disabled);
+                combined.Added.AddRange(sub.Added);
+                combined.Updated.AddRange(sub.Updated);
+                combined.Removed.AddRange(sub.Removed);
+                combined.Failed.AddRange(sub.Failed);
+                combined.Unchanged += sub.Unchanged;
+            }
+
+            return combined;
+        }
+
+        public SyncResult Sync(GitHubLocation source, string localDirectory, IEnumerable<string> disabledModules = null)
         {
             Directory.CreateDirectory(localDirectory);
 
@@ -119,9 +150,13 @@ namespace MangaDownloader.Core.Sync
             var manifest = LoadManifest(localDirectory);
             var result = new SyncResult();
             var next = new Dictionary<string, string>();
+            var disabled = new HashSet<string>(disabledModules ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
 
             foreach (var file in remote)
             {
+                if (disabled.Contains(file.Name) || disabled.Contains(Path.GetFileNameWithoutExtension(file.Name)))
+                    continue;
+
                 var local = Path.Combine(localDirectory, file.Name);
                 var exists = File.Exists(local);
 

@@ -175,6 +175,19 @@ namespace MangaDownloader.Lua.Tests
         }
 
         [Fact]
+        public void UntrackedSeriesSelectionListsAndQueuesOnlyValidChapters()
+        {
+            var details = Ok(Request(HttpMethod.Post, "/api/chapters/list", "{\"url\":\"https://t.test/s\"}"));
+            Assert.Equal(2, details.GetProperty("chapters").GetArrayLength());
+            Assert.Equal(HttpStatusCode.Conflict, Call(Request(HttpMethod.Post, "/api/chapters/download-selected", "{\"url\":\"https://t.test/s\",\"urls\":[\"https://evil.test/x\"]}")).Status);
+            Assert.Equal(HttpStatusCode.BadRequest, Call(Request(HttpMethod.Post, "/api/chapters/download-selected", "{\"url\":\"https://t.test/s\",\"urls\":[]}")).Status);
+            Ok(Request(HttpMethod.Post, "/api/chapters/download-selected", "{\"url\":\"https://t.test/s\",\"urls\":[\"https://t.test/c/2\"]}"));
+            Assert.Equal(new[] { "https://t.test/c/2" }, db.ListQueue().Single().ChapterUrls);
+            Assert.Empty(db.ListTracked());
+            Assert.Equal(HttpStatusCode.Conflict, Call(Request(HttpMethod.Post, "/api/chapters/download-selected", "{\"url\":\"https://t.test/s\",\"urls\":[\"https://t.test/c/1\"]}")).Status);
+        }
+
+        [Fact]
         public void SeriesSelectionValidatesChaptersAndPersistsInQueue()
         {
             var tracked = Ok(Request(HttpMethod.Post, "/api/track", "{\"url\":\"https://t.test/s\"}"));

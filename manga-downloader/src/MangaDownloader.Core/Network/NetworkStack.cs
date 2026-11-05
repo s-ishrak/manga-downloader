@@ -13,12 +13,12 @@ namespace MangaDownloader.Core.Network
         public string FlareSolverrUrl { get; set; }
 
         /// <summary>
-        /// On a Cloudflare check, open the site in the person's own browser and ask them to paste what that browser sent after they passed it.
-        /// The check itself is always done by a human; nothing here drives or inspects the browser.
+        /// On a Cloudflare check, open a separate verification window and collect its cookies and user agent automatically.
+        /// The check itself is always completed by a human.
         /// </summary>
         public bool OpenInBrowser { get; set; }
 
-        /// <summary>With <see cref="OpenInBrowser"/>: skip the popup window and ask for pasted cookies instead (also the fallback when the popup cannot run).</summary>
+        /// <summary>Explicit opt-in to pasting cookies instead of automatically collecting them from a separate browser.</summary>
         public bool PasteInstead { get; set; }
 
         /// <summary>Folder for the popup browser's own profile; keeping it means a passed check is remembered.</summary>
@@ -101,16 +101,14 @@ namespace MangaDownloader.Core.Network
 
             if (options.OpenInBrowser)
             {
-                var paste = new ManualChallengeSolver(verification, null, log);
-                var popupReady = !options.PasteInstead && BrowserWindowSolver.IsAvailable() && !string.IsNullOrEmpty(options.BrowserProfileDirectory);
-
-                if (!options.PasteInstead && !popupReady)
-                    log("the popup browser is not available here (it needs Windows and " + BrowserWindowSolver.HelperFileName + " next to the program); you will be asked to paste instead.");
-
-                // Popup window first. Pasting is only the fallback when the popup cannot run, never after you close or cancel the window.
-                manual = popupReady
-                    ? new FallbackSolver(new BrowserWindowSolver(options.BrowserProfileDirectory, options.BrowserTimeoutSeconds, log), paste) { Log = log }
-                    : (IChallengeSolver)paste;
+                var profile = options.BrowserProfileDirectory ?? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "manga-downloader", "verification-profile");
+                // Pasting is available only when explicitly requested. The normal path never opens the person's main browser session.
+                manual = options.PasteInstead
+                    ? (IChallengeSolver)new ManualChallengeSolver(verification, null, log)
+                    : new FallbackSolver(
+                        new ChromiumWindowSolver(profile + "-chromium", options.BrowserTimeoutSeconds, log),
+                        BrowserWindowSolver.IsAvailable() ? new BrowserWindowSolver(profile, options.BrowserTimeoutSeconds, log) : null) { Log = log };
             }
 
             // FlareSolverr (automatic) first when both are given; the manual check is the fallback.
@@ -149,8 +147,12 @@ namespace MangaDownloader.Core.Network
             }
             finally
             {
-                client.Dispose();
-                (solver as IDisposable)?.Dispose();
+                try { (Http as IDisposable)?.Dispose(); }
+                finally
+                {
+                    client.Dispose();
+                    (solver as IDisposable)?.Dispose();
+                }
             }
         }
     }

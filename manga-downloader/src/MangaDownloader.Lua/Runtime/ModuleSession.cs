@@ -65,12 +65,14 @@ namespace MangaDownloader.Lua.Runtime
         private readonly Dictionary<string, string> pageCache = new Dictionary<string, string>();
 
         private readonly ICredentialProvider credentials;
+        private readonly IDictionary<string, Dictionary<string, string>> moduleSettings;
         private readonly HashSet<string> loggedInDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public ModuleSession(LuaModule module, ICredentialProvider credentials = null)
+        public ModuleSession(LuaModule module, ICredentialProvider credentials = null, IDictionary<string, Dictionary<string, string>> moduleSettings = null)
         {
             this.module = module;
             this.credentials = credentials;
+            this.moduleSettings = moduleSettings;
         }
 
         /// <summary>
@@ -339,6 +341,18 @@ namespace MangaDownloader.Lua.Runtime
             matched.Domain = domain;
             module.Context.CurrentModule = matched;
             module.Context.CurrentUrl = url;
+
+            if (moduleSettings != null)
+            {
+                var name = matched.GetName();
+                Dictionary<string, string> overrides = null;
+                if ((name != null && moduleSettings.TryGetValue(name, out overrides)) ||
+                    (domain != null && moduleSettings.TryGetValue(domain, out overrides)))
+                {
+                    foreach (var kvp in overrides)
+                        matched.Settings[kvp.Key] = kvp.Value;
+                }
+            }
 
             Script.Globals["module"] = matched;
             Script.Globals["url"] = url;

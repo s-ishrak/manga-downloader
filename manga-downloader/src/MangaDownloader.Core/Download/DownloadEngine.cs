@@ -51,6 +51,8 @@ namespace MangaDownloader.Core.Download
 
         /// <summary>Per-image format conversions applied after download (first matching rule wins), e.g. webp,avif=jpg:80.</summary>
         public List<ImageConversionRule> ConversionRules { get; private set; } = new List<ImageConversionRule>();
+        public List<string> TagRules { get; set; } = new List<string>();
+        public Dictionary<string, Dictionary<string, string>> ModuleSettings { get; set; } = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         public bool SkipExisting { get; set; } = true;
         public bool FixLongPaths { get; set; } = true;
 
@@ -65,6 +67,8 @@ namespace MangaDownloader.Core.Download
         {
             var copy = (DownloadOptions)MemberwiseClone();
             copy.ConversionRules = new List<ImageConversionRule>(ConversionRules);
+            copy.TagRules = new List<string>(TagRules);
+            copy.ModuleSettings = new Dictionary<string, Dictionary<string, string>>(ModuleSettings, StringComparer.OrdinalIgnoreCase);
             return copy;
         }
     }
@@ -132,7 +136,7 @@ namespace MangaDownloader.Core.Download
             try
             {
                 var match = repository.Find(url) ?? throw new InvalidOperationException("No module supports " + url);
-                var session = new ModuleSession(match.File, credentials);
+                var session = new ModuleSession(match.File, credentials, options.ModuleSettings);
 
                 log($"{match.Module.GetName()}: {url}");
                 var info = session.GetInfo(url);
@@ -197,7 +201,7 @@ namespace MangaDownloader.Core.Download
             return false;
         }
 
-                private static string Describe(ModuleFailedException e, string url)
+        private static string Describe(ModuleFailedException e, string url)
         {
             var host = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
 
@@ -224,6 +228,13 @@ namespace MangaDownloader.Core.Download
 
             if (chapters.Count == 0)
                 chapters.Add(new ChapterResult { Url = url });
+
+            if (options.TagRules != null && options.TagRules.Count > 0 && info.Fields != null && info.Fields.TryGetValue("Tags", out var rawTags) && !string.IsNullOrWhiteSpace(rawTags))
+            {
+                var tags = rawTags.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim());
+                var transformed = TagRules.Apply(tags, options.TagRules);
+                info.Fields["Tags"] = string.Join(", ", transformed);
+            }
 
             var infoValues = BuildInfoValues(info, url, match);
             var folderName = SafeName(NameFormatter.Format(options.FolderFormat, infoValues));
@@ -276,7 +287,7 @@ namespace MangaDownloader.Core.Download
                 }
 
                 if (selected != null && !selected.Contains(chapter.Url)) continue;
-                DownloadChapter(chapter.Url ?? url, session, infoValues, info, workDir, combine ? null : archiveBase, report, cancel);
+                DownloadChapter(chapter.Url ?? url, session, infoValues, info, workDir, combine ? null : archiveBase, report, cancel, chapter);
                 chapterDirs.Add(workDir);
                 report.ChaptersDone++;
                 RaiseProgress(report, 0, 0);
@@ -299,7 +310,7 @@ namespace MangaDownloader.Core.Download
 
             RaiseProgress(report, 0, 0, options.SaveFormat.ToString().ToUpperInvariant());
             if (options.SaveFormat == SaveFormat.Pdf)
-                PdfWriter.Create(entries.Select(e => e.Key).ToList(), combinedPath, info.Fields);
+                PdfWriter.Create(entries.Select(e => e.Key).ToList(), combinedPath, info.Fields, bookmarks);
             else
                 CbzWriter.Create(entries, combinedPath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null, bookmarks,
                     includeDirectories: options.SaveFormat == SaveFormat.Cbz);
@@ -319,15 +330,24 @@ namespace MangaDownloader.Core.Download
 
         /// <param name="archiveBase">Where the chapter's own archive goes (extension added); null means no archive is written here.</param>
         private void DownloadChapter(string chapterUrl, ModuleSession session, Dictionary<string, string> infoValues, InfoResult info,
-            string workDir, string archiveBase, DownloadReport report, CancellationToken cancel)
+            string workDir, string archiveBase, DownloadReport report, CancellationToken cancel, ChapterResult chapter = null)
         {
             var archivePath = archiveBase == null ? null : ArchivePath(archiveBase);
 
-            if (archivePath != null && options.SkipExisting && File.Exists(archivePath))
+            if (options.SkipExisting)
             {
-                log("exists, skipping: " + archivePath);
-                report.Outputs.Add(archivePath);
-                return;
+                if (archivePath != null && File.Exists(archivePath))
+                {
+                    log("[skip] exists: " + archivePath);
+                    report.Outputs.Add(archivePath);
+                    return;
+                }
+                if (archivePath == null && archiveBase != null && Directory.Exists(workDir) && Directory.EnumerateFiles(workDir).Any())
+                {
+                    log("[skip] exists: " + workDir);
+                    report.Outputs.Add(workDir);
+                    return;
+                }
             }
 
             var pages = session.GetPages(chapterUrl).Where(p => !string.IsNullOrEmpty(p.Url)).ToList();
@@ -427,11 +447,21 @@ namespace MangaDownloader.Core.Download
                 return;
             }
 
+            var chapterFields = new Dictionary<string, string>(info.Fields ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+            if (chapter != null)
+            {
+                if (!string.IsNullOrWhiteSpace(chapter.Chapter)) chapterFields["Chapter"] = chapter.Chapter;
+                if (!string.IsNullOrWhiteSpace(chapter.Volume)) chapterFields["Volume"] = chapter.Volume;
+                if (!string.IsNullOrWhiteSpace(chapter.Language)) chapterFields["Language"] = chapter.Language;
+                if (!string.IsNullOrWhiteSpace(chapter.Scanlator)) chapterFields["Scanlator"] = chapter.Scanlator;
+                if (!string.IsNullOrWhiteSpace(chapter.Title)) chapterFields["ChapterTitle"] = chapter.Title;
+            }
+
             RaiseProgress(report, pages.Count, pages.Count, options.SaveFormat.ToString().ToUpperInvariant());
             if (options.SaveFormat == SaveFormat.Pdf)
-                PdfWriter.Create(ArchiveFiles.List(workDir), archivePath, info.Fields);
+                PdfWriter.Create(ArchiveFiles.List(workDir), archivePath, chapterFields);
             else
-                CbzWriter.Create(workDir, archivePath, options.SaveFormat == SaveFormat.Cbz ? info.Fields : null);
+                CbzWriter.Create(workDir, archivePath, options.SaveFormat == SaveFormat.Cbz ? chapterFields : null);
 
             log("wrote " + archivePath);
             report.Outputs.Add(archivePath);

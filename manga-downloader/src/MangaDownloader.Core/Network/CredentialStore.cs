@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using MangaDownloader.Lua.Runtime;
@@ -10,10 +12,12 @@ namespace MangaDownloader.Core.Network
 {
     /// <summary>
     /// Per-site logins for modules that define <c>Login()</c>, kept in a local JSON file
-    /// (<c>{"sites": {"domain": {"username": "...", "password": "..."}}}</c>). The password is stored in plain text, so keep the file private.
+    /// (<c>{"sites": {"domain": {"username": "...", "password": "..."}}}</c>).
+    /// Passwords are encrypted at rest using Windows DPAPI where available.
     /// </summary>
     public sealed class CredentialStore : ICredentialProvider
     {
+        private const string DpapiPrefix = "dpapi:";
         private readonly string path;
         private readonly Dictionary<string, (string User, string Password)> sites = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
 
@@ -28,6 +32,8 @@ namespace MangaDownloader.Core.Network
         public IEnumerable<string> Domains => sites.Keys.OrderBy(k => k);
 
         public string UserFor(string domain) => sites.TryGetValue(Normalize(domain), out var c) ? c.User : null;
+
+        public string PasswordFor(string domain) => sites.TryGetValue(Normalize(domain), out var c) ? c.Password : null;
 
         public void Set(string domain, string username, string password)
         {
@@ -66,17 +72,71 @@ namespace MangaDownloader.Core.Network
 
         private static string Normalize(string domain) => (domain ?? "").Trim().ToLowerInvariant().TrimStart('.');
 
+        private static string EncryptPassword(string password)
+        {
+            if (string.IsNullOrEmpty(password))
+                return password ?? "";
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                try
+                {
+                    var bytes = Encoding.UTF8.GetBytes(password);
+                    var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+                    return DpapiPrefix + Convert.ToBase64String(encrypted);
+                }
+                catch
+                {
+                    return password;
+                }
+            }
+
+            return password;
+        }
+
+        private static string DecryptPassword(string storedPassword)
+        {
+            if (string.IsNullOrEmpty(storedPassword))
+                return "";
+
+            if (storedPassword.StartsWith(DpapiPrefix, StringComparison.Ordinal))
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    try
+                    {
+                        var cipherBytes = Convert.FromBase64String(storedPassword.Substring(DpapiPrefix.Length));
+                        var decrypted = ProtectedData.Unprotect(cipherBytes, null, DataProtectionScope.CurrentUser);
+                        return Encoding.UTF8.GetString(decrypted);
+                    }
+                    catch
+                    {
+                        return "";
+                    }
+                }
+
+                return "";
+            }
+
+            return storedPassword; // Plaintext legacy format
+        }
+
         private void Load()
         {
             using (var doc = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8).TrimStart('﻿')))
             {
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    return;
+
                 if (!doc.RootElement.TryGetProperty("sites", out var s) || s.ValueKind != JsonValueKind.Object)
                     return;
 
                 foreach (var site in s.EnumerateObject())
                 {
                     string Str(string name) => site.Value.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
-                    sites[Normalize(site.Name)] = (Str("username") ?? "", Str("password") ?? "");
+                    var user = Str("username") ?? "";
+                    var rawPassword = Str("password") ?? "";
+                    sites[Normalize(site.Name)] = (user, DecryptPassword(rawPassword));
                 }
             }
         }
@@ -94,7 +154,7 @@ namespace MangaDownloader.Core.Network
                     {
                         w.WriteStartObject(site.Key);
                         w.WriteString("username", site.Value.User);
-                        w.WriteString("password", site.Value.Password);
+                        w.WriteString("password", EncryptPassword(site.Value.Password));
                         w.WriteEndObject();
                     }
 

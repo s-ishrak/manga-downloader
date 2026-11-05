@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -45,6 +46,28 @@ namespace MangaDownloader.Core
         /// <summary>Minutes between automatic checks of tracked series; 0 = never.</summary>
         public int? CheckEveryMinutes { get; set; }
 
+        /// <summary>Whether the phone link listener should start with the web UI.</summary>
+        public bool? PhoneLinksEnabled { get; set; }
+
+        /// <summary>Token embedded in the private phone link while phone links remain enabled.</summary>
+        public string PhoneLinkToken { get; set; }
+
+        /// <summary>Per-image format conversions, e.g. "webp,avif=jpg:80".</summary>
+        public List<string> ConversionRules { get; set; } = new List<string>();
+
+        public string ProxyUrl { get; set; } = "";
+
+        public string FlareSolverrUrl { get; set; } = "";
+
+        /// <summary>LANraragi-style tag rewrite/filter rules.</summary>
+        public List<string> TagRules { get; set; } = new List<string>();
+
+        /// <summary>Per-module setting overrides: moduleName -> { settingName -> value }.</summary>
+        public Dictionary<string, Dictionary<string, string>> ModuleSettings { get; set; } = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Modules disabled by user configuration.</summary>
+        public List<string> DisabledModules { get; set; } = new List<string>();
+
         public static AppSettings Load(string path)
         {
             if (!File.Exists(path))
@@ -67,6 +90,44 @@ namespace MangaDownloader.Core
             var temp = path + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(this, Json), new UTF8Encoding(false));
             File.Move(temp, path, true);
+        }
+
+        public DownloadOptions ToDownloadOptions()
+        {
+            var options = new DownloadOptions
+            {
+                OutputDirectory = OutputDirectory ?? "downloads",
+                MaxParallel = Parallel ?? 6,
+                RetryFailed = Retry ?? 4,
+                PageDelayMilliseconds = DelayMilliseconds ?? 0,
+                KeepImages = KeepImages == true,
+                CombineChapters = CombineChapters == true,
+                SkipExisting = Overwrite != true,
+                SaveFormat = string.IsNullOrEmpty(Format) ? SaveFormat.Cbz : ParseFormat(Format),
+            };
+
+            if (ConversionRules != null)
+            {
+                foreach (var rule in ConversionRules)
+                {
+                    if (!string.IsNullOrWhiteSpace(rule))
+                    {
+                        try { options.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(rule)); }
+                        catch { }
+                    }
+                }
+            }
+
+            if (TagRules != null)
+                options.TagRules.AddRange(TagRules);
+
+            if (ModuleSettings != null)
+            {
+                foreach (var kvp in ModuleSettings)
+                    options.ModuleSettings[kvp.Key] = new Dictionary<string, string>(kvp.Value, StringComparer.OrdinalIgnoreCase);
+            }
+
+            return options;
         }
 
         public static SaveFormat ParseFormat(string text)

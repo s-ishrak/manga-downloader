@@ -150,11 +150,12 @@ namespace MangaDownloader.Core.Library
             var entries = Parse(text, map, out var version, result.Skipped);
             result.Version = version;
 
+            var existingKeys = new HashSet<string>(library.ListQueue().Select(q => LibraryDb.UrlKey(q.Url)), StringComparer.Ordinal);
+
             foreach (var entry in entries)
             {
-                var before = library.ListQueue().Count(q => LibraryDb.UrlKey(q.Url) == LibraryDb.UrlKey(entry.Url));
-
-                if (before > 0)
+                var key = LibraryDb.UrlKey(entry.Url);
+                if (!existingKeys.Add(key))
                 {
                     result.AlreadyPresent++;
                     continue;

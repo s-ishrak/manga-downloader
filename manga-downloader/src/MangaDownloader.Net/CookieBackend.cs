@@ -34,6 +34,7 @@ namespace MangaDownloader.Net
 
             for (var hop = 0; ; hop++)
             {
+                current.CancellationToken.ThrowIfCancellationRequested();
                 var uri = new Uri(current.Url);
                 var hopRequest = Copy(current);
                 hopRequest.AllowAutoRedirect = false;
@@ -88,6 +89,8 @@ namespace MangaDownloader.Net
                 Body = r.Body,
                 ContentType = r.ContentType,
                 AllowAutoRedirect = r.AllowAutoRedirect,
+                CancellationToken = r.CancellationToken,
+                AllowInteractiveChallenge = r.AllowInteractiveChallenge,
             };
 
             foreach (var h in r.Headers)

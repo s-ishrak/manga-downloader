@@ -14,12 +14,14 @@ namespace MangaDownloader.Net
         public string Url { get; set; }
         public string Body { get; set; }
         public string UserAgent { get; set; }
+        /// <summary>Optional live browser connection when clearance cannot be transferred to HttpClient. Ownership passes to CloudflareBackend.</summary>
+        public IHttpBackend BrowserSession { get; set; }
         public IList<CookieEntry> Cookies { get; } = new List<CookieEntry>();
     }
 
     public interface IChallengeSolver
     {
-        /// <summary>Loads <paramref name="request"/> in a real browser and returns the page plus the cookies/user agent that cleared the challenge.</summary>
+        /// <summary>Loads <paramref name="request"/> in a browser and returns the cookies/user agent, optionally retaining its verified connection.</summary>
         SolverSolution Solve(HttpRequest request);
     }
 
@@ -120,9 +122,10 @@ namespace MangaDownloader.Net
     /// <summary>
     /// Detects Cloudflare challenge responses and, when a solver is configured, clears them once per site: the solved
     /// cookies go into the jar and the browser's user agent (cf_clearance is bound to it) is used for all later requests to that host.
+    /// If cookie transfer is rejected, a solver's live browser connection can serve subsequent requests to the same origin.
     /// Put this outside the <see cref="CookieBackend"/> so the retry picks up the new cookies.
     /// </summary>
-    public sealed class CloudflareBackend : IHttpBackend
+    public sealed class CloudflareBackend : IHttpBackend, IDisposable
     {
         private readonly IHttpBackend inner;
         private readonly CookieJar jar;
@@ -130,6 +133,7 @@ namespace MangaDownloader.Net
         private readonly Dictionary<string, string> userAgents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly object gate = new object();
         private readonly object solveGate = new object();
+        private readonly Dictionary<string, IHttpBackend> browserSessions = new Dictionary<string, IHttpBackend>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DateTime> lastSolved = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, (DateTime At, string Message)> lastCancelled = new Dictionary<string, (DateTime, string)>(StringComparer.OrdinalIgnoreCase);
 
@@ -171,7 +175,17 @@ namespace MangaDownloader.Net
         {
             var started = DateTime.UtcNow;
             ApplyUserAgent(request);
-            var result = Run(request, destination);
+            var origin = new Uri(request.Url).GetLeftPart(UriPartial.Authority);
+            var session = SessionFor(origin);
+            HttpResult result;
+            try { result = Run(request, destination, session); }
+            catch (IOException) when (session != null)
+            {
+                RemoveSession(origin, session);
+                throw;
+            }
+            if (session != null && IsChallenge(result))
+                RemoveSession(origin, session);
 
             if (!IsChallenge(result) || solver == null)
             {
@@ -183,8 +197,12 @@ namespace MangaDownloader.Net
 
             var host = new Uri(request.Url).Host;
 
+            if (!request.AllowInteractiveChallenge)
+                throw new IOException("The site requires browser verification and could not be inspected automatically. Use a supported site module or import its clearance cookies before trying again.");
+
             // One solve per site at a time. Requests that hit the same challenge while it is being solved (parallel page downloads) wait here and
             // then just retry with the cookies the first solve produced, instead of opening another browser window each.
+            HttpResult retry = null;
             lock (solveGate)
             {
                 if (lastCancelled.TryGetValue(host, out var cancelled) && cancelled.At >= started)
@@ -194,26 +212,56 @@ namespace MangaDownloader.Net
                 {
                     Log("Cloudflare challenge at " + host + "; asking the solver...");
 
-                    SolverSolution solution;
-                    try { solution = solver.Solve(request); }
+                    void Validate(SolverSolution solution)
+                    {
+                        foreach (var cookie in solution.Cookies)
+                        {
+                            if (string.IsNullOrEmpty(cookie.Domain))
+                                cookie.Domain = host;
+
+                            jar.Set(cookie);
+                        }
+
+                        if (!string.IsNullOrEmpty(solution.UserAgent))
+                        {
+                            lock (gate)
+                                userAgents[host] = solution.UserAgent;
+                        }
+
+                        var retained = false;
+                        try
+                        {
+                            var response = Retry();
+                            if (IsChallenge(response) && solution.BrowserSession != null)
+                            {
+                                Log("Clearance cookies were rejected by the downloader; using the verified browser connection for " + host + ". Keep that window open while this site is in use.");
+                                response = Retry(solution.BrowserSession);
+                                RequireCleared(response);
+                                lock (gate)
+                                    browserSessions[origin] = solution.BrowserSession;
+                                retained = true;
+                            }
+                            RequireCleared(response);
+                            retry = response;
+                        }
+                        finally
+                        {
+                            if (!retained)
+                                (solution.BrowserSession as IDisposable)?.Dispose();
+                        }
+                    }
+
+                    try
+                    {
+                        if (solver is FallbackSolver fallback)
+                            fallback.Solve(request, Validate);
+                        else
+                            Validate(solver.Solve(request));
+                    }
                     catch (SolverCancelledException e)
                     {
                         lastCancelled[host] = (DateTime.UtcNow, e.Message);
                         throw;
-                    }
-
-                    foreach (var cookie in solution.Cookies)
-                    {
-                        if (string.IsNullOrEmpty(cookie.Domain))
-                            cookie.Domain = host;
-
-                        jar.Set(cookie);
-                    }
-
-                    if (!string.IsNullOrEmpty(solution.UserAgent))
-                    {
-                        lock (gate)
-                            userAgents[host] = solution.UserAgent;
                     }
 
                     lastSolved[host] = DateTime.UtcNow;
@@ -221,20 +269,62 @@ namespace MangaDownloader.Net
                 }
             }
 
-            ApplyUserAgent(request);
+            var final = retry ?? Retry(SessionFor(origin));
+            RequireCleared(final);
+            return final;
 
-            if (destination != null)
-                destination.SetLength(0);
+            HttpResult Retry(IHttpBackend backend = null)
+            {
+                request.CancellationToken.ThrowIfCancellationRequested();
+                ApplyUserAgent(request);
 
-            var retry = Run(request, destination);
+                if (destination != null)
+                    destination.SetLength(0);
 
-            if (IsChallenge(retry))
-                throw new IOException("Cloudflare challenge at " + request.Url + " was not cleared by the solver (cookies were rejected).");
+                return Run(request, destination, backend);
+            }
 
-            return retry;
+            void RequireCleared(HttpResult response)
+            {
+                if (IsChallenge(response))
+                    throw new IOException("Cloudflare challenge at " + request.Url + " was not cleared by the solver (cookies were rejected). Complete verification in your browser using the same network connection as the downloader; if this persists, the site's protection may not accept this downloader's connection.");
+            }
         }
 
-        private HttpResult Run(HttpRequest request, Stream destination) => destination == null ? inner.Send(request) : inner.Download(request, destination);
+        private HttpResult Run(HttpRequest request, Stream destination, IHttpBackend backend = null)
+        {
+            var response = destination == null ? (backend ?? inner).Send(request) : (backend ?? inner).Download(request, destination);
+            if (backend != null)
+                foreach (var cookie in response.SetCookies)
+                    jar.Set(cookie);
+            return response;
+        }
+
+        private IHttpBackend SessionFor(string origin)
+        {
+            lock (gate)
+                return browserSessions.TryGetValue(origin, out var session) ? session : null;
+        }
+
+        private void RemoveSession(string origin, IHttpBackend session)
+        {
+            lock (gate)
+                if (browserSessions.TryGetValue(origin, out var current) && ReferenceEquals(current, session))
+                    browserSessions.Remove(origin);
+            (session as IDisposable)?.Dispose();
+        }
+
+        public void Dispose()
+        {
+            IHttpBackend[] sessions;
+            lock (gate)
+            {
+                sessions = browserSessions.Values.Distinct().ToArray();
+                browserSessions.Clear();
+            }
+            foreach (var session in sessions)
+                (session as IDisposable)?.Dispose();
+        }
 
         private void ApplyUserAgent(HttpRequest request)
         {

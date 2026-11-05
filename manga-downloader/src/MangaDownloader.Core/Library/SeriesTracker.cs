@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MangaDownloader.Core.Download;
 using MangaDownloader.Lua.Runtime;
 
 namespace MangaDownloader.Core.Library
@@ -28,12 +29,14 @@ namespace MangaDownloader.Core.Library
         private readonly LibraryDb library;
         private readonly ModuleRepository repository;
         private readonly ICredentialProvider credentials;
+        public DownloadOptions Options { get; set; }
 
-        public SeriesTracker(LibraryDb library, ModuleRepository repository, ICredentialProvider credentials = null)
+        public SeriesTracker(LibraryDb library, ModuleRepository repository, ICredentialProvider credentials = null, DownloadOptions options = null)
         {
             this.library = library;
             this.repository = repository;
             this.credentials = credentials;
+            this.Options = options;
         }
 
         public TrackedSeries Track(string url, bool autoDownload = false)
@@ -63,7 +66,11 @@ namespace MangaDownloader.Core.Library
 
                 if (series.AutoDownload && result.NewChapters.Count > 0)
                 {
-                    library.Enqueue(series.Url, title ?? series.Title, "tracker");
+                    var newUrls = result.NewChapters.Select(c => c.Url).ToList();
+                    if (Options != null && Options.CombineChapters)
+                        library.Enqueue(series.Url, title ?? series.Title, "tracker");
+                    else
+                        library.EnqueueSelected(series.Url, title ?? series.Title, newUrls, "tracker");
                     result.Queued = true;
                 }
             }

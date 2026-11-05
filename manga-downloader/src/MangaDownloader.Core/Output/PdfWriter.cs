@@ -25,7 +25,10 @@ namespace MangaDownloader.Core.Output
             public int Components;
         }
 
-        public static void Create(IList<string> images, string pdfPath, IDictionary<string, string> info = null)
+        public static void Write(IList<string> images, string pdfPath, IDictionary<string, string> info = null, IList<KeyValuePair<int, string>> bookmarks = null) =>
+            Create(images, pdfPath, info, bookmarks);
+
+        public static void Create(IList<string> images, string pdfPath, IDictionary<string, string> info = null, IList<KeyValuePair<int, string>> bookmarks = null)
         {
             if (images.Count == 0)
                 throw new InvalidOperationException("No images to put in a PDF.");
@@ -33,6 +36,9 @@ namespace MangaDownloader.Core.Output
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(pdfPath)));
             var temp = pdfPath + ".tmp";
             var offsets = new Dictionary<int, long>();
+
+            var validBookmarks = bookmarks?.Where(bm => bm.Key >= 0 && bm.Key < images.Count && !string.IsNullOrWhiteSpace(bm.Value)).ToList();
+            var hasOutlines = validBookmarks != null && validBookmarks.Count > 0;
 
             try
             {
@@ -44,12 +50,16 @@ namespace MangaDownloader.Core.Output
                     var pageCount = images.Count;
                     const int catalog = 1, pages = 2, infoObj = 3;
                     int PageId(int i) => 4 + i * 3;
+                    var outlineRootId = 4 + pageCount * 3;
 
                     Text("%PDF-1.4\n");
                     file.Write(new byte[] { (byte)'%', 0xE2, 0xE3, 0xCF, 0xD3, (byte)'\n' }, 0, 6); // marks the file as binary for transfer tools
 
                     Begin(catalog);
-                    Text($"<< /Type /Catalog /Pages {pages} 0 R >>\nendobj\n");
+                    if (hasOutlines)
+                        Text($"<< /Type /Catalog /Pages {pages} 0 R /Outlines {outlineRootId} 0 R >>\nendobj\n");
+                    else
+                        Text($"<< /Type /Catalog /Pages {pages} 0 R >>\nendobj\n");
 
                     Begin(pages);
                     Text("<< /Type /Pages /Count " + pageCount + " /Kids [" + string.Join(" ", Enumerable.Range(0, pageCount).Select(i => PageId(i) + " 0 R")) + "] >>\nendobj\n");
@@ -78,7 +88,24 @@ namespace MangaDownloader.Core.Output
                         Text("\nendstream\nendobj\n");
                     }
 
-                    var total = 4 + pageCount * 3; // object numbers 0 .. total-1
+                    if (hasOutlines)
+                    {
+                        Begin(outlineRootId);
+                        var firstItem = outlineRootId + 1;
+                        var lastItem = outlineRootId + validBookmarks.Count;
+                        Text($"<< /Type /Outlines /First {firstItem} 0 R /Last {lastItem} 0 R /Count {validBookmarks.Count} >>\nendobj\n");
+
+                        for (var k = 0; k < validBookmarks.Count; k++)
+                        {
+                            var itemId = outlineRootId + 1 + k;
+                            Begin(itemId);
+                            var prev = k > 0 ? $"/Prev {itemId - 1} 0 R " : "";
+                            var next = k < validBookmarks.Count - 1 ? $"/Next {itemId + 1} 0 R " : "";
+                            Text($"<< /Title {TextString(validBookmarks[k].Value)} /Parent {outlineRootId} 0 R {prev}{next}/Dest [{PageId(validBookmarks[k].Key)} 0 R /Fit] >>\nendobj\n");
+                        }
+                    }
+
+                    var total = hasOutlines ? outlineRootId + 1 + validBookmarks.Count : outlineRootId;
                     var xref = file.Position;
 
                     Text($"xref\n0 {total}\n0000000000 65535 f \n");
@@ -150,43 +177,53 @@ namespace MangaDownloader.Core.Output
             return parsed;
         }
 
-        /// <summary>Width, height and component count from the JPEG start-of-frame marker; null if this is not a JPEG.</summary>
-        private static PageImage TryReadJpeg(byte[] b)
+        /// <summary>Dimensions and color components directly from the SOF marker of a JPEG byte array (null when not a valid JPEG).</summary>
+        private static PageImage TryReadJpeg(byte[] bytes)
         {
-            if (b.Length < 4 || b[0] != 0xFF || b[1] != 0xD8)
+            if (bytes.Length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8)
                 return null;
 
-            var i = 2;
+            var pos = 2;
 
-            while (i + 4 < b.Length)
+            while (pos + 4 <= bytes.Length)
             {
-                if (b[i] != 0xFF)
+                if (bytes[pos] != 0xFF)
+                    return null;
+
+                while (pos < bytes.Length && bytes[pos] == 0xFF)
+                    pos++;
+
+                if (pos >= bytes.Length)
+                    return null;
+
+                var marker = bytes[pos++];
+
+                if (marker == 0xD9 || marker == 0xDA) // EOI or SOS: image data follows, no header left
+                    break;
+
+                if (pos + 2 > bytes.Length)
+                    return null;
+
+                var len = (bytes[pos] << 8) | bytes[pos + 1];
+
+                if (len < 2 || pos + len > bytes.Length)
+                    return null;
+
+                // Baseline, progressive and extended SOF markers (not differential/hierarchical).
+                if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7) || (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF))
                 {
-                    i++;
-                    continue;
+                    if (len < 8)
+                        return null;
+
+                    return new PageImage
+                    {
+                        Height = (bytes[pos + 3] << 8) | bytes[pos + 4],
+                        Width = (bytes[pos + 5] << 8) | bytes[pos + 6],
+                        Components = bytes[pos + 7],
+                    };
                 }
 
-                var marker = b[i + 1];
-
-                if (marker == 0xFF)
-                {
-                    i++;
-                    continue;
-                }
-
-                if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7))
-                {
-                    i += 2;
-                    continue;
-                }
-
-                var length = (b[i + 2] << 8) | b[i + 3];
-                var isFrame = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
-
-                if (isFrame && i + 9 < b.Length)
-                    return new PageImage { Height = (b[i + 5] << 8) | b[i + 6], Width = (b[i + 7] << 8) | b[i + 8], Components = b[i + 9] };
-
-                i += 2 + length;
+                pos += len;
             }
 
             return null;

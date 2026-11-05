@@ -279,7 +279,10 @@ namespace MangaDownloader.Net
 
         public Action<string> Log { get; set; } = _ => { };
 
-        public SolverSolution Solve(HttpRequest request)
+        public SolverSolution Solve(HttpRequest request) => Solve(request, _ => { });
+
+        // A solver returning cookies is not enough: the HTTP retry must accept them before we stop trying fallbacks.
+        internal SolverSolution Solve(HttpRequest request, Action<SolverSolution> validate)
         {
             IOException last = null;
 
@@ -287,7 +290,12 @@ namespace MangaDownloader.Net
             {
                 try
                 {
-                    return solver.Solve(request);
+                    if (solver is FallbackSolver fallback)
+                        return fallback.Solve(request, validate);
+
+                    var solution = solver.Solve(request);
+                    validate(solution);
+                    return solution;
                 }
                 catch (SolverCancelledException)
                 {

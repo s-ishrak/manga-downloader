@@ -41,8 +41,8 @@ namespace MangaDownloader.Cli
             "  --config DIR         cookies.json / credentials.json / library.db live here (default: %APPDATA%/manga-downloader)\n" +
             "                       settings.json there holds what the web UI's Settings saved; flags given here override it\n" +
             "  --proxy URL          http(s) proxy, e.g. http://user:pass@host:8080\n" +
-            "  --browser            on a Cloudflare check: a popup browser window opens; you pass the check there yourself and the\n" +
-            "                       tool takes over the resulting cookies (nothing automates the page). [--browser-timeout SECONDS]\n" +
+            "  --browser            on a Cloudflare check: a separate Brave/Chrome/Edge window opens; complete verification there and\n" +
+            "                       cookies are collected automatically. [--browser-timeout SECONDS]\n" +
             "                       [--paste: paste \"Copy as cURL\" from your own browser instead of using the popup]\n" +
             "  --flaresolverr URL   solve Cloudflare challenges through FlareSolverr, e.g. http://localhost:8191\n" +
             "  --user-agent UA | --random-ua";
@@ -122,19 +122,27 @@ namespace MangaDownloader.Cli
             var sourceUrl = options.Flag("source");
             var repositoriesFile = options.Flag("repositories") ?? Path.Combine(options.ConfigDirectory, "repositories.json");
 
-            if (sourceUrl == null && File.Exists(repositoriesFile))
-            {
-                var source = RepositorySource.Load(repositoriesFile).FirstOrDefault();
-                sourceUrl = source?.RemotePath;
-                Console.Error.WriteLine($"using repository \"{source?.Name}\" from {repositoriesFile}");
-            }
-
-            var location = GitHubLocation.Parse(sourceUrl ?? OfficialRepository);
-
             using (var net = NetworkStack.Create(options.Network(withCookies: false), Console.Error.WriteLine))
             {
-                Console.Error.WriteLine($"syncing {location} -> {options.ModulesDirectory}");
-                var result = new ModuleSync(net.Http, Console.Error.WriteLine).Sync(location, options.ModulesDirectory);
+                var sync = new ModuleSync(net.Http, Console.Error.WriteLine)
+                {
+                    DisabledModules = new HashSet<string>(options.Settings.DisabledModules ?? new List<string>(), StringComparer.OrdinalIgnoreCase)
+                };
+
+                SyncResult result;
+
+                if (sourceUrl == null && File.Exists(repositoriesFile))
+                {
+                    var sources = RepositorySource.Load(repositoriesFile);
+                    Console.Error.WriteLine($"syncing {sources.Count} repositor{(sources.Count == 1 ? "y" : "ies")} from {repositoriesFile} -> {options.ModulesDirectory}");
+                    result = sync.SyncAll(sources, options.ModulesDirectory);
+                }
+                else
+                {
+                    var location = GitHubLocation.Parse(sourceUrl ?? OfficialRepository);
+                    Console.Error.WriteLine($"syncing {location} -> {options.ModulesDirectory}");
+                    result = sync.Sync(location, options.ModulesDirectory);
+                }
 
                 Console.WriteLine($"{result.Added.Count} added, {result.Updated.Count} updated, {result.Removed.Count} removed, {result.Unchanged} unchanged, {result.Failed.Count} failed");
 
@@ -384,7 +392,7 @@ namespace MangaDownloader.Cli
                 using (var net = NetworkStack.Create(options.Network(), Console.Error.WriteLine))
                 {
                     var repository = ModuleRepository.LoadDirectory(options.ModulesDirectory, net.Http, net.Jar);
-                    var tracker = new SeriesTracker(library, repository, new CredentialStore(options.CredentialsFile));
+                    var tracker = new SeriesTracker(library, repository, new CredentialStore(options.CredentialsFile), BuildDownloadOptions(options));
 
                     if (sub == "add")
                     {
@@ -433,11 +441,12 @@ namespace MangaDownloader.Cli
 
                 var repository = ModuleRepository.LoadDirectory(options.ModulesDirectory, net.Http, net.Jar);
                 var credentials = new CredentialStore(options.CredentialsFile);
-                var tracker = new SeriesTracker(library, repository, credentials);
+                var tracker = new SeriesTracker(library, repository, credentials, download);
 
                 // Each download gets its own copy of the options, so a setting changed in the web UI applies from the next download on.
                 using (var runner = new QueueRunner(library, () => new DownloadEngine(repository, net.Http, download.Clone(), null, credentials), Console.WriteLine) { MaxConcurrent = options.Int("concurrent", options.Settings.Concurrent ?? 1) })
-                using (var server = new LocalWebServer(library, runner, tracker, port, download: download, settingsFile: options.SettingsFile, modules: repository) { CheckEveryMinutes = options.Int("check-every", options.Settings.CheckEveryMinutes ?? 0) })
+                using (var server = new LocalWebServer(library, runner, tracker, port, download: download, settingsFile: options.SettingsFile, modules: repository,
+                    phoneLinksEnabled: options.Settings.PhoneLinksEnabled ?? false, phoneLinkToken: options.Settings.PhoneLinkToken, credentials: credentials, cookies: net.Jar, http: net.Http) { CheckEveryMinutes = options.Int("check-every", options.Settings.CheckEveryMinutes ?? 0) })
                 {
                     // Cloudflare questions are answered in the web page instead of the console.
                     net.Verification.Target = server;
@@ -553,8 +562,32 @@ namespace MangaDownloader.Cli
                 SaveFormat = AppSettings.ParseFormat(options.Flag("format") ?? settings.Format ?? "cbz"),
             };
 
-            foreach (var rule in options.Many("convert"))
-                download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(rule));
+            var convertFlags = options.Many("convert").ToList();
+            if (convertFlags.Count > 0)
+            {
+                foreach (var rule in convertFlags)
+                    download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(rule));
+            }
+            else if (settings.ConversionRules != null && settings.ConversionRules.Count > 0)
+            {
+                foreach (var rule in settings.ConversionRules)
+                {
+                    if (!string.IsNullOrWhiteSpace(rule))
+                    {
+                        try { download.ConversionRules.Add(MangaDownloader.Imaging.ImageConversionRule.Parse(rule)); }
+                        catch { }
+                    }
+                }
+            }
+
+            if (settings.TagRules != null && settings.TagRules.Count > 0)
+                download.TagRules.AddRange(settings.TagRules);
+
+            if (settings.ModuleSettings != null && settings.ModuleSettings.Count > 0)
+            {
+                foreach (var kvp in settings.ModuleSettings)
+                    download.ModuleSettings[kvp.Key] = new Dictionary<string, string>(kvp.Value, StringComparer.OrdinalIgnoreCase);
+            }
 
             download.PageNameFormat = options.Flag("page-format") ?? download.PageNameFormat;
             download.ChapterFormat = options.Flag("chapter-format") ?? download.ChapterFormat;
@@ -597,9 +630,9 @@ namespace MangaDownloader.Cli
                             Console.WriteLine(page.Url);
                         break;
                 }
-            }
 
-            return 0;
+                return 0;
+            }
         }
 
         private sealed class Options
@@ -642,8 +675,8 @@ namespace MangaDownloader.Cli
 
             public NetworkOptions Network(bool withCookies = true) => new NetworkOptions
             {
-                ProxyUrl = Flag("proxy") ?? Environment.GetEnvironmentVariable("MANGA_DOWNLOADER_PROXY"),
-                FlareSolverrUrl = Flag("flaresolverr"),
+                ProxyUrl = Flag("proxy") ?? Environment.GetEnvironmentVariable("MANGA_DOWNLOADER_PROXY") ?? (string.IsNullOrWhiteSpace(Settings.ProxyUrl) ? null : Settings.ProxyUrl),
+                FlareSolverrUrl = Flag("flaresolverr") ?? (string.IsNullOrWhiteSpace(Settings.FlareSolverrUrl) ? null : Settings.FlareSolverrUrl),
                 OpenInBrowser = Has("browser") || Has("paste"),
                 PasteInstead = Has("paste"),
                 BrowserProfileDirectory = Path.Combine(ConfigDirectory, "webview-profile"),

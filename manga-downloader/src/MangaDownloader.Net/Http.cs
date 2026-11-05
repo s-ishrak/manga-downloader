@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 
 namespace MangaDownloader.Net
 {
@@ -18,6 +19,8 @@ namespace MangaDownloader.Net
         public string Body { get; set; }
         public string ContentType { get; set; }
         public bool AllowAutoRedirect { get; set; } = true;
+        public CancellationToken CancellationToken { get; set; }
+        public bool AllowInteractiveChallenge { get; set; } = true;
     }
 
     public sealed class HttpResult
@@ -142,7 +145,7 @@ namespace MangaDownloader.Net
 
             var client = request.AllowAutoRedirect ? follow : noFollow;
 
-            using (var response = client.SendAsync(message, destination == null ? HttpCompletionOption.ResponseContentRead : HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult())
+            using (var response = client.SendAsync(message, destination == null ? HttpCompletionOption.ResponseContentRead : HttpCompletionOption.ResponseHeadersRead, request.CancellationToken).GetAwaiter().GetResult())
             {
                 var result = new HttpResult
                 {
@@ -152,9 +155,9 @@ namespace MangaDownloader.Net
                 };
 
                 if (destination == null)
-                    result.Body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                    result.Body = response.Content.ReadAsStringAsync(request.CancellationToken).GetAwaiter().GetResult();
                 else if (response.IsSuccessStatusCode)
-                    response.Content.CopyToAsync(destination).GetAwaiter().GetResult();
+                    response.Content.CopyToAsync(destination, request.CancellationToken).GetAwaiter().GetResult();
 
                 foreach (var header in response.Headers.Concat(response.Content.Headers))
                     result.Headers[header.Key] = string.Join(", ", header.Value);

@@ -8,25 +8,20 @@ using System.Xml;
 
 namespace MangaDownloader.Core.Output
 {
+    /// <summary>Creates CBZ (zip) archives, optional ComicInfo.xml metadata entry, and chapter bookmark markers.</summary>
     public static class CbzWriter
     {
-        /// <summary>
-        /// Zips the image files of <paramref name="sourceFolder"/> (in natural name order, stored uncompressed since images
-        /// are already compressed) plus an optional ComicInfo.xml. Written to a temp file and moved into place, so a crash never leaves a half-written archive.
-        /// </summary>
-        public static void Create(string sourceFolder, string archivePath, IDictionary<string, string> info)
-        {
-            Create(ArchiveFiles.List(sourceFolder).Select(f => new KeyValuePair<string, string>(f, Path.GetFileName(f))).ToList(), archivePath, info);
-        }
+        public static void Create(string sourceDirectory, string archivePath, IDictionary<string, string> info = null, IList<KeyValuePair<int, string>> chapters = null) =>
+            Create(ArchiveFiles.List(sourceDirectory).Select(f => new KeyValuePair<string, string>(f, Path.GetFileName(f))).ToList(), archivePath, info, chapters);
 
-        /// <summary>Same, from explicit (file, entry name) pairs in archive order, so several chapter folders can share one archive.</summary>
-        public static void Create(IList<KeyValuePair<string, string>> files, string archivePath, IDictionary<string, string> info,
+        public static void Create(IList<KeyValuePair<string, string>> entries, string archivePath, IDictionary<string, string> info = null,
             IList<KeyValuePair<int, string>> chapters = null, bool includeDirectories = false)
         {
-            var temp = archivePath + ".tmp";
+            if (entries.Count == 0)
+                throw new InvalidOperationException("No files to put in an archive.");
 
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(archivePath)));
-
+            var temp = archivePath + ".tmp";
             if (File.Exists(temp))
                 File.Delete(temp);
 
@@ -34,28 +29,34 @@ namespace MangaDownloader.Core.Output
             {
                 using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
                 {
-                    var directories = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var file in files)
+                    var addedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var entry in entries)
                     {
+                        var target = entry.Value.Replace('\\', '/');
+
                         if (includeDirectories)
                         {
-                            for (var slash = file.Value.IndexOf('/'); slash >= 0; slash = file.Value.IndexOf('/', slash + 1))
+                            var idx = 0;
+                            while ((idx = target.IndexOf('/', idx)) >= 0)
                             {
-                                var directory = file.Value.Substring(0, slash + 1);
-                                if (directories.Add(directory))
-                                    zip.CreateEntry(directory);
+                                var dir = target.Substring(0, idx + 1);
+                                if (addedDirs.Add(dir))
+                                    zip.CreateEntry(dir);
+                                idx++;
                             }
                         }
-                        zip.CreateEntryFromFile(file.Key, file.Value, CompressionLevel.NoCompression);
+
+                        zip.CreateEntryFromFile(entry.Key, target, CompressionLevel.Optimal);
                     }
 
                     if (info != null)
                     {
-                        var entry = zip.CreateEntry("ComicInfo.xml", CompressionLevel.Optimal);
+                        var xml = ComicInfo(info, entries.Count, chapters);
+                        var meta = zip.CreateEntry("ComicInfo.xml", CompressionLevel.Optimal);
 
-                        using (var stream = entry.Open())
-                        using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
-                            writer.Write(ComicInfo(info, files.Count, chapters));
+                        using var writer = new StreamWriter(meta.Open(), new UTF8Encoding(false));
+                        writer.Write(xml);
                     }
                 }
 
@@ -71,10 +72,14 @@ namespace MangaDownloader.Core.Output
             }
         }
 
+        public static string BuildComicInfoXml(IDictionary<string, string> info, int pageCount, IList<KeyValuePair<int, string>> chapters = null) =>
+            ComicInfo(info, pageCount, chapters);
+
         /// <summary>ComicInfo.xml (Anansi schema) from the module's info fields.</summary>
         /// <param name="chapters">(first page index, name) per chapter; written as bookmarks, which readers such as Komga show as a table of contents.</param>
         public static string ComicInfo(IDictionary<string, string> info, int pageCount, IList<KeyValuePair<int, string>> chapters = null)
         {
+            if (info == null) return null;
             string Get(params string[] keys) => keys.Select(k => info.TryGetValue(k, out var v) ? v : null).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
             var settings = new XmlWriterSettings { Indent = true, Encoding = new UTF8Encoding(false), OmitXmlDeclaration = false };
@@ -92,16 +97,29 @@ namespace MangaDownloader.Core.Output
                         w.WriteElementString(name, value);
                 }
 
-                Element("Title", Get("Title"));
-                Element("Series", Get("Series"));
+                var chapterTitle = Get("ChapterTitle");
+                if (!string.IsNullOrWhiteSpace(chapterTitle))
+                {
+                    Element("Title", chapterTitle);
+                    Element("Series", Get("Series", "Title"));
+                }
+                else
+                {
+                    Element("Title", Get("Title"));
+                    Element("Series", Get("Series"));
+                }
+
+                Element("Number", Get("Chapter", "Number"));
+                Element("Volume", Get("Volume"));
                 Element("Summary", Get("Summary", "Description"));
                 Element("Writer", Get("Author"));
                 Element("Penciller", Get("Artist"));
                 Element("Publisher", Get("Publisher", "Circle", "Group"));
                 Element("Genre", Get("Genres", "Type", "Category"));
                 Element("Tags", Get("Tags"));
+                Element("Teams", Get("Scanlator", "Teams"));
                 Element("Characters", Get("Characters"));
-                Element("LanguageISO", Get("Language"));
+                Element("LanguageISO", Get("Language", "LanguageISO"));
                 Element("Web", Get("Url"));
                 Element("PageCount", pageCount.ToString());
                 w.WriteElementString("Manga", "Yes");

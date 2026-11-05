@@ -243,4 +243,177 @@ namespace MangaDownloader.Lua.Api
 
         public static string Solve(object http, object url) => throw new NotSupportedException("Captcha solving is not implemented.");
     }
+
+    /// <summary>Implements standard LZString decompression for Lua modules.</summary>
+    [MoonSharpUserData]
+    public class LzStringUserData
+    {
+        private const string KeyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+        private const string KeyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
+
+        private static readonly Dictionary<char, int> Base64Dict = KeyStrBase64.Select((c, i) => (c, i)).ToDictionary(x => x.c, x => x.i);
+        private static readonly Dictionary<char, int> UriSafeDict = KeyStrUriSafe.Select((c, i) => (c, i)).ToDictionary(x => x.c, x => x.i);
+
+        public static string Decompress(string compressed) => DecompressCore(compressed);
+        public static string decompress(string compressed) => DecompressCore(compressed);
+
+        public static string DecompressFromBase64(string input) => DecompressFromBase64Core(input);
+        public static string decompressFromBase64(string input) => DecompressFromBase64Core(input);
+
+        public static string DecompressFromUTF16(string input) => DecompressFromUTF16Core(input);
+        public static string decompressFromUTF16(string input) => DecompressFromUTF16Core(input);
+
+        public static string DecompressFromEncodedURIComponent(string input) => DecompressFromEncodedURIComponentCore(input);
+        public static string decompressFromEncodedURIComponent(string input) => DecompressFromEncodedURIComponentCore(input);
+
+        public static string DecompressCore(string compressed)
+        {
+            if (compressed == null) return "";
+            if (compressed.Length == 0) return null;
+            return DecompressInternal(compressed.Length, 32768, index => compressed[index]);
+        }
+
+        public static string DecompressFromBase64Core(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "";
+            return DecompressInternal(input.Length, 32, index => Base64Dict.TryGetValue(input[index], out var v) ? v : 0);
+        }
+
+        public static string DecompressFromUTF16Core(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "";
+            return DecompressInternal(input.Length, 16384, index => input[index] - 32);
+        }
+
+        public static string DecompressFromEncodedURIComponentCore(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "";
+            input = input.Replace(' ', '+');
+            return DecompressInternal(input.Length, 32, index => UriSafeDict.TryGetValue(input[index], out var v) ? v : 0);
+        }
+
+        private struct DecompressData
+        {
+            public int Val;
+            public int Position;
+            public int Index;
+        }
+
+        private static string DecompressInternal(int length, int resetValue, Func<int, int> getNextValue)
+        {
+            var dictionary = new List<string>();
+            var result = new StringBuilder();
+            var data = new DecompressData { Val = getNextValue(0), Position = resetValue, Index = 1 };
+
+            for (var i = 0; i < 3; i++)
+                dictionary.Add(((char)i).ToString());
+
+            int ReadBits(int numBits)
+            {
+                var bits = 0;
+                var maxpower = 1 << numBits;
+                var power = 1;
+                while (power != maxpower)
+                {
+                    var resb = data.Val & data.Position;
+                    data.Position >>= 1;
+                    if (data.Position == 0)
+                    {
+                        data.Position = resetValue;
+                        data.Val = data.Index < length ? getNextValue(data.Index++) : 0;
+                    }
+                    bits |= (resb > 0 ? 1 : 0) * power;
+                    power <<= 1;
+                }
+                return bits;
+            }
+
+            var next = ReadBits(2);
+            string c = "";
+
+            switch (next)
+            {
+                case 0:
+                    c = ((char)ReadBits(8)).ToString();
+                    break;
+                case 1:
+                    c = ((char)ReadBits(16)).ToString();
+                    break;
+                case 2:
+                    return "";
+            }
+
+            dictionary.Add(c); // index 3
+            var w = c;
+            result.Append(c);
+
+            var enlargeIn = 4;
+            var dictSize = 4;
+            var numBitsCounter = 3;
+
+            while (true)
+            {
+                if (data.Index > length)
+                    return "";
+
+                var bits = ReadBits(numBitsCounter);
+                int cCode = bits;
+
+                switch (cCode)
+                {
+                    case 0:
+                        var ch8 = (char)ReadBits(8);
+                        dictionary.Add(ch8.ToString());
+                        cCode = dictSize++;
+                        enlargeIn--;
+                        break;
+                    case 1:
+                        var ch16 = (char)ReadBits(16);
+                        dictionary.Add(ch16.ToString());
+                        cCode = dictSize++;
+                        enlargeIn--;
+                        break;
+                    case 2:
+                        return result.ToString();
+                }
+
+                if (enlargeIn == 0)
+                {
+                    enlargeIn = 1 << numBitsCounter;
+                    numBitsCounter++;
+                }
+
+                string entry;
+                if (cCode < dictionary.Count && dictionary[cCode] != null)
+                {
+                    entry = dictionary[cCode];
+                }
+                else
+                {
+                    if (cCode == dictSize)
+                    {
+                        entry = w + w[0];
+                    }
+                    else
+                    {
+                        return null;
+                    }
+                }
+                result.Append(entry);
+
+                // Add w + entry[0] to the dictionary.
+                dictionary.Add(w + entry[0]);
+                dictSize++;
+                enlargeIn--;
+
+                w = entry;
+
+                if (enlargeIn == 0)
+                {
+                    enlargeIn = 1 << numBitsCounter;
+                    numBitsCounter++;
+                }
+            }
+        }
+    }
 }

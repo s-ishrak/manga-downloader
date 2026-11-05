@@ -52,7 +52,7 @@ namespace MangaDownloader.Lua.Runtime
             g["Paginator"] = UserData.CreateStatic<PaginatorUserData>();
             g["Captcha"] = UserData.CreateStatic<UnsupportedUserData>();
             g["ImageUnscrambler"] = UserData.CreateStatic<ImageUnscramblerUserData>();
-            g["LZString"] = UserData.CreateStatic<UnsupportedUserData>();
+            g["LZString"] = UserData.CreateStatic<LzStringUserData>();
 
             // Statics that need the host context.
             g["Http"] = Factory(script, "New", () => new HttpUserData(ctx));
